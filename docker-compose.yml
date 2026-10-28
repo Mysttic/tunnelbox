@@ -1,0 +1,98 @@
+# Tunnelbox: instalacja jednym poleceniem, z gotowego obrazu w rejestrze:
+#   curl -fsSLO https://raw.githubusercontent.com/Mysttic/tunnelbox/main/docker-compose.yml
+#   docker compose up -d
+# i panel działa pod http://tunnelbox.localhost:25263 (dane w ./data obok tego pliku).
+# Aktualizacja: docker compose pull, potem docker compose up -d (dwa polecenia — „&&”
+# nie działa w Windows PowerShell 5.1)
+# Uruchamianie ze źródeł: start.sh / start.ps1 (dokładają docker-compose.build.yml).
+#
+# privileged: panel w trakcie pracy tworzy przestrzenie sieciowe (ip netns), pary veth,
+# reguły NAT i polityki IPsec (XFRM), ustawia sysctl nowych interfejsów i otwiera /dev/ppp
+# dla pppd — bez trybu uprzywilejowanego Docker na część z tego nie pozwala. Szczegóły:
+# README, „Why the container is privileged". Porty i tak słuchają tylko na 127.0.0.0/8.
+#
+# macOS: adresy puli 127.0.0.2…127.0.0.60 wymagają aliasów na lo0 (Linux i Windows ich
+# nie potrzebują) — polecenie w README, a start.sh dodaje je sam.
+services:
+  tunnelbox:
+    image: ghcr.io/mysttic/tunnelbox:latest
+    container_name: tunnelbox
+    privileged: true
+    init: true
+    environment:
+      # Kanał instalacji — panel podpowiada wtedy aktualizację przez „docker compose pull".
+      TUNNELBOX_INSTALL: registry
+    ports:
+      # Panel WWW: własny port + własna nazwa (http://tunnelbox.localhost:25263).
+      # Przeglądarki rozwiązują dowolne *.localhost na pętlę zwrotną, więc nazwa
+      # działa bez wpisu w pliku hosts i bez uprawnień administratora.
+      - "127.0.0.1:25263:8080"
+      # Pula portów na przekierowania. Każdy port ma własny adres pętli zwrotnej:
+      # 13391 -> 127.0.0.2, 13392 -> 127.0.0.3, ... 13449 -> 127.0.0.60.
+      # Powód: Windows zapisuje poświadczenia RDP pod kluczem TERMSRV/<adres>
+      # BEZ portu, więc wszystkie maszyny pod „localhost" dzieliłyby jeden wpis
+      # i nadpisywały się nawzajem. Osobny adres = osobne zapamiętane hasło.
+      # Adresy 127.0.0.0/8 są lokalne dla tego komputera — z sieci nadal nieosiągalne.
+      # Zakres musi pokrywać się z LOCAL_PORT_MIN/MAX w app/connections.py.
+      - "127.0.0.2:13391:13391"
+      - "127.0.0.3:13392:13392"
+      - "127.0.0.4:13393:13393"
+      - "127.0.0.5:13394:13394"
+      - "127.0.0.6:13395:13395"
+      - "127.0.0.7:13396:13396"
+      - "127.0.0.8:13397:13397"
+      - "127.0.0.9:13398:13398"
+      - "127.0.0.10:13399:13399"
+      - "127.0.0.11:13400:13400"
+      - "127.0.0.12:13401:13401"
+      - "127.0.0.13:13402:13402"
+      - "127.0.0.14:13403:13403"
+      - "127.0.0.15:13404:13404"
+      - "127.0.0.16:13405:13405"
+      - "127.0.0.17:13406:13406"
+      - "127.0.0.18:13407:13407"
+      - "127.0.0.19:13408:13408"
+      - "127.0.0.20:13409:13409"
+      - "127.0.0.21:13410:13410"
+      - "127.0.0.22:13411:13411"
+      - "127.0.0.23:13412:13412"
+      - "127.0.0.24:13413:13413"
+      - "127.0.0.25:13414:13414"
+      - "127.0.0.26:13415:13415"
+      - "127.0.0.27:13416:13416"
+      - "127.0.0.28:13417:13417"
+      - "127.0.0.29:13418:13418"
+      - "127.0.0.30:13419:13419"
+      - "127.0.0.31:13420:13420"
+      - "127.0.0.32:13421:13421"
+      - "127.0.0.33:13422:13422"
+      - "127.0.0.34:13423:13423"
+      - "127.0.0.35:13424:13424"
+      - "127.0.0.36:13425:13425"
+      - "127.0.0.37:13426:13426"
+      - "127.0.0.38:13427:13427"
+      - "127.0.0.39:13428:13428"
+      - "127.0.0.40:13429:13429"
+      - "127.0.0.41:13430:13430"
+      - "127.0.0.42:13431:13431"
+      - "127.0.0.43:13432:13432"
+      - "127.0.0.44:13433:13433"
+      - "127.0.0.45:13434:13434"
+      - "127.0.0.46:13435:13435"
+      - "127.0.0.47:13436:13436"
+      - "127.0.0.48:13437:13437"
+      - "127.0.0.49:13438:13438"
+      - "127.0.0.50:13439:13439"
+      - "127.0.0.51:13440:13440"
+      - "127.0.0.52:13441:13441"
+      - "127.0.0.53:13442:13442"
+      - "127.0.0.54:13443:13443"
+      - "127.0.0.55:13444:13444"
+      - "127.0.0.56:13445:13445"
+      - "127.0.0.57:13446:13446"
+      - "127.0.0.58:13447:13447"
+      - "127.0.0.59:13448:13448"
+      - "127.0.0.60:13449:13449"
+    volumes:
+      - ./data:/data
+    restart: unless-stopped

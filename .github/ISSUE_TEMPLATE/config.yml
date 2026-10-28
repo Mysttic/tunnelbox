@@ -1,0 +1,7 @@
+# Zwykłe zgłoszenia zostają otwarte (także bez szablonu), a luki bezpieczeństwa idą
+# prywatnym kanałem — publiczne zgłoszenie ujawniłoby je przed poprawką (SECURITY.md).
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/Mysttic/tunnelbox/security/advisories/new
+    about: Please report security issues privately, not in a public issue.

@@ -1,0 +1,17 @@
+# dane użytkownika (zaszyfrowany sejf z profilami VPN)
+data/
+
+# stare, jawne konfiguracje VPN
+vpn-config/
+*.config
+*.enc
+
+# artefakty budowania pakietu release
+dist/
+
+# testy
+__pycache__/
+.pytest_cache/
+tests/e2e/node_modules/
+tests/e2e/playwright-report/
+tests/e2e/test-results/

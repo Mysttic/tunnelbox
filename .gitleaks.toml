@@ -1,0 +1,20 @@
+# gitleaks: domyślne reguły plus wyjątek dla zmyślonego hasła z historii repozytorium.
+#
+# Starsze commity mają w tests/ (conftest.py, test_ipsec.py) i w tools/screenshots.js
+# fikcyjne hasło TajneHaslo123 (także TajneHaslo123654321) — reguła generic-api-key bierze
+# je za sekret. W bieżącym drzewie są już example-password / example-password654321,
+# ale historia zostaje, więc skan z --log-opts=--all potrzebuje tego wyjątku.
+#
+# Wyjątek celowo nie ma listy paths: w globalnym [allowlist] (gitleaks 8.18) ścieżki nie
+# zawężają regexes, tylko działają obok nich — wpis ^tests/ wyłączyłby ze skanu każdy
+# sekret w tests/, także prawdziwy. Sama wartość jest na tyle charakterystyczna, że
+# wystarcza jako filtr; regexes porównuje się z samym sekretem (domyślny regexTarget).
+
+title = "Tunnelbox gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fictitious test password from the repository history (tests/, tools/screenshots.js)"
+regexes = ['''TajneHaslo123''']

@@ -1,0 +1,623 @@
+name: Release
+
+# Release powstaje po scaleniu PR develop -> main (push do main).
+# Numer wersji bierze się z pliku VERSION. Jeśli tag vX.Y.Z już istnieje,
+# workflow kończy się bez tworzenia release — żeby wydać nową wersję, zmień VERSION.
+#
+# Joby, w tej kolejności:
+#   version        : odczyt VERSION i strażnik wydania (czy tag vX.Y.Z już istnieje).
+#   images         : obraz wieloarchitekturowy (amd64, arm64, arm/v7) wypychany do
+#                    ghcr.io/mysttic/tunnelbox. Z niego korzysta instalacja z rejestru
+#                    (docker-compose.yml w katalogu głównym).
+#   release        : obraz linux/amd64 i samowystarczalny pakiet tunnelbox-X.Y.Z.zip
+#                    (obraz z docker save, wczytywany lokalnie przez start.bat / start.sh
+#                    poleceniem docker load, bez rejestru i logowania), a z nimi release
+#                    vX.Y.Z w tym repozytorium. Startuje dopiero po images, bo kopia
+#                    wydania na stronie (job site) mówi zainstalowanym panelom o nowej
+#                    wersji: nie może się pojawić wcześniej niż obraz, który instalacja
+#                    z rejestru ma wtedy pobrać.
+#   dockerhub      : kopia tych samych tagów z GHCR na Docker Hub (bez ponownego budowania)
+#                    i opis repozytorium z README; tylko gdy są sekrety DOCKERHUB_*.
+#                    Awaria Docker Hub (np. wygasły token) nie wstrzymuje wydania.
+#   site           : kopia paczki na stronie z pobieraniem, w hubie Mysttic/Mysttic (tag
+#                    tunnelbox-vX.Y.Z, plik tunnelbox-X.Y.Z.zip). Stamtąd paczkę daje do
+#                    pobrania strona projektu i tylko tam o nowe wersje pytają panel
+#                    (app/updates.py) i instalator (packaging/update-launcher.ps1).
+#   report-failure : gdy któryś z powyższych jobów padnie albo przekroczy limit czasu,
+#                    zakłada zgłoszenie „Release vX.Y.Z failed" z etykietą release-failed
+#                    albo dopisuje kolejny przebieg do zgłoszenia, które jest już otwarte.
+#
+# Strażnik wersji warunkuje wszystkie kolejne joby, więc push do main bez zmiany VERSION
+# kończy przebieg po kilku sekundach, bez budowania obrazu — o ile tag vX.Y.Z już istnieje.
+# Tag powstaje dopiero w jobie release: gdy images albo release padły, kolejny push do main
+# wyda tę wersję jeszcze raz, z nowego commitu (patrz docs/RELEASING.md). Ręczne uruchomienie
+# z force=true pomija tego strażnika — służy do dokończenia wydania, przy którym tag
+# już powstał (np. po wygaśnięciu HUB_TOKEN).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:       # możliwość ręcznego uruchomienia z zakładki Actions
+    inputs:
+      force:
+        description: "Wydaj nawet wtedy, gdy tag vX.Y.Z już istnieje"
+        type: boolean
+        required: false
+        default: false
+
+# każdy job deklaruje własne uprawnienia — domyślnie żadnych
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Wersja i strażnik wydania
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      tag: ${{ steps.ver.outputs.tag }}
+      # 'true' tylko wtedy, gdy wydanie faktycznie powstaje w tym przebiegu
+      publishing: ${{ steps.check.outputs.exists == 'false' }}
+    steps:
+      - name: Pobierz kod
+        uses: actions/checkout@v4
+
+      - name: Odczytaj wersję z pliku VERSION
+        id: ver
+        run: |
+          VERSION="$(tr -d ' \t\r\n' < VERSION)"
+          if [ -z "$VERSION" ]; then
+            echo "::error::Plik VERSION jest pusty."
+            exit 1
+          fi
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Zły format VERSION: '$VERSION' (oczekiwano X.Y.Z, np. 2.0.0)."
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Wersja: $VERSION"
+
+      # Strażnik wydania: warunkuje wszystkie joby budujące i publikujące poniżej.
+      - name: Sprawdź, czy tag już istnieje
+        id: check
+        env:
+          FORCE: "${{ inputs.force && 'true' || 'false' }}"
+        run: |
+          if [ "$FORCE" = "true" ]; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Ręczne uruchomienie z force=true — pomijam sprawdzenie tagu."
+          elif git ls-remote --exit-code --tags origin "refs/tags/${{ steps.ver.outputs.tag }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Tag ${{ steps.ver.outputs.tag }} już istnieje — pomijam release. Zmień plik VERSION, aby wydać nową wersję."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  release:
+    needs: [version, images]
+    if: needs.version.outputs.publishing == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write   # tworzenie tagu i release
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      - name: Pobierz kod
+        uses: actions/checkout@v4
+
+      # starsze wydanie (np. ponowne uruchomienie nieudanego przebiegu, gdy wyszła już
+      # nowsza wersja) nie może zostać „Latest" — na nie wskazują linki /releases/latest
+      - name: Czy to najnowsze wydanie
+        id: newest
+        run: |
+          set -euo pipefail
+          # błąd sieci przy ls-remote ma przerwać job — gdyby lista tagów wyszła pusta,
+          # starsza wersja uznałaby się za najnowszą
+          REMOTE="$(git ls-remote --tags --refs origin 'refs/tags/v*')"
+          ALL="$( { printf '%s\n' "$REMOTE" | sed 's#.*refs/tags/v##' \
+                    | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true; }; echo "$VERSION")"
+          TOP="$(printf '%s\n' "$ALL" | sort -V | tail -1)"
+          TOP_MINOR="$(printf '%s\n' "$ALL" | awk -F. -v m="${VERSION%.*}" '$1"."$2 == m' | sort -V | tail -1)"
+          echo "latest=$([ "$TOP" = "$VERSION" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "minor=$([ "$TOP_MINOR" = "$VERSION" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "Najnowsza wersja: $TOP, najnowsza w linii ${VERSION%.*}: $TOP_MINOR"
+
+      - name: Przygotuj buildx
+        uses: docker/setup-buildx-action@v3
+
+      # load: true wczytuje obraz do lokalnego dockera, żeby kolejny krok mógł zrobić
+      # docker save; cache warstw leży w Actions cache (type=gha), nie w artefaktach.
+      - name: Zbuduj obraz Docker (z cache warstw)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: tunnelbox:${{ env.VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Zbuduj pakiet instalacyjny ZIP (z obrazem)
+        run: |
+          set -euo pipefail
+          PKG="tunnelbox-${VERSION}"
+          mkdir -p "dist/$PKG/docs"
+
+          # docker-compose.yml wskazujący na lokalnie wczytany obraz
+          sed "s#__IMAGE__#tunnelbox:${VERSION}#g" packaging/docker-compose.yml > "dist/$PKG/docker-compose.yml"
+
+          cp packaging/start.bat packaging/start.ps1 packaging/start.sh "dist/$PKG/"
+          cp packaging/rdp-launcher.ps1 packaging/update-launcher.ps1 "dist/$PKG/"
+          # paczka jest dwujęzyczna, tak jak panel
+          cp packaging/INSTALL.md "dist/$PKG/README.md"
+          cp packaging/INSTALL.pl.md "dist/$PKG/README.pl.md"
+          cp CHANGELOG.md "dist/$PKG/CHANGELOG.md"
+          cp LICENSE THIRD_PARTY.md "dist/$PKG/"
+          cp docs/MANUAL.md docs/MANUAL.pl.md "dist/$PKG/docs/"
+          cp -r docs/img "dist/$PKG/docs/img"
+          chmod +x "dist/$PKG/start.sh"
+
+          # dokładne wersje komponentów tego obrazu (GPL: wersja pakietu Debiana wskazuje
+          # źródła) — ta sama lista, którą obraz nosi w /usr/share/doc/tunnelbox
+          docker run --rm --entrypoint cat "tunnelbox:${VERSION}" \
+            /usr/share/doc/tunnelbox/third-party-versions.txt > "dist/$PKG/THIRD_PARTY_VERSIONS.txt"
+          if [ ! -s "dist/$PKG/THIRD_PARTY_VERSIONS.txt" ]; then
+            echo "::error::Obraz nie zawiera listy wersji komponentów (third-party-versions.txt)."
+            exit 1
+          fi
+
+          # obraz Docker do zaimportowania u użytkownika (docker load)
+          docker save "tunnelbox:${VERSION}" | gzip > "dist/$PKG/tunnelbox-image-${VERSION}.tar.gz"
+
+          (cd dist && zip -r "$PKG.zip" "$PKG" >/dev/null)
+          ls -lh "dist/$PKG.zip"
+
+      - name: Zbuduj opis wydania (nagłówek + changelog wersji)
+        run: |
+          set -euo pipefail
+          NOTES="dist/RELEASE_NOTES.md"
+          mkdir -p dist
+          sed "s/__VERSION__/${VERSION}/g" packaging/release-notes-header.md > "$NOTES"
+          printf '\n## Changes in this version\n\n' >> "$NOTES"
+          if [ -f CHANGELOG.md ]; then
+            SECTION="$(awk -v ver="$VERSION" '
+              BEGIN { header = "## [" ver "]" }
+              substr($0, 1, length(header)) == header { grab=1; next }
+              grab && /^## / { exit }
+              grab { print }
+            ' CHANGELOG.md)"
+            if [ -n "$SECTION" ]; then
+              printf '%s\n' "$SECTION" >> "$NOTES"
+            else
+              echo "::warning::Brak sekcji [$VERSION] w CHANGELOG.md — opis wydania będzie niepełny."
+              printf '_No CHANGELOG.md entry for this version._\n' >> "$NOTES"
+            fi
+          fi
+
+      - name: Utwórz release na GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          # tag na zbudowanym commicie, a nie na tym, co akurat jest na czubku main
+          target_commitish: ${{ github.sha }}
+          name: Tunnelbox ${{ env.TAG }}
+          make_latest: ${{ steps.newest.outputs.latest }}
+          generate_release_notes: true
+          body_path: dist/RELEASE_NOTES.md
+          files: dist/tunnelbox-${{ env.VERSION }}.zip
+
+  # Obraz dla instalacji z rejestru: X.Y.Z, X.Y i latest na trzech architekturach, w GHCR
+  # (GITHUB_TOKEN wystarcza). latest i X.Y przesuwamy tylko wtedy, gdy ta wersja jest
+  # najnowsza (w całości i w swojej linii X.Y) — ponowne uruchomienie nieudanego joba
+  # starszego wydania nie może cofnąć instalacji z rejestru do starszej wersji. Sprawdzamy
+  # to w chwili uruchomienia joba, a nie w jobie version, bo „Re-run failed jobs" bierze
+  # wyniki jobów, które się wtedy udały, z pierwszego przebiegu.
+  images:
+    name: Obraz w GHCR (amd64, arm64, arm/v7)
+    needs: version
+    if: needs.version.outputs.publishing == 'true'
+    runs-on: ubuntu-latest
+    # arm64 i arm/v7 budują się w emulacji (QEMU), a na arm/v7 cffi kompiluje się ze źródeł
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write   # push do ghcr.io
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GHCR_IMAGE: ghcr.io/mysttic/tunnelbox
+    steps:
+      - name: Pobierz kod
+        uses: actions/checkout@v4
+
+      - name: Czy to najnowsze wydanie
+        id: newest
+        run: |
+          set -euo pipefail
+          # błąd sieci przy ls-remote ma przerwać job — gdyby lista tagów wyszła pusta,
+          # starsza wersja uznałaby się za najnowszą
+          REMOTE="$(git ls-remote --tags --refs origin 'refs/tags/v*')"
+          ALL="$( { printf '%s\n' "$REMOTE" | sed 's#.*refs/tags/v##' \
+                    | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true; }; echo "$VERSION")"
+          TOP="$(printf '%s\n' "$ALL" | sort -V | tail -1)"
+          TOP_MINOR="$(printf '%s\n' "$ALL" | awk -F. -v m="${VERSION%.*}" '$1"."$2 == m' | sort -V | tail -1)"
+          echo "latest=$([ "$TOP" = "$VERSION" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "minor=$([ "$TOP_MINOR" = "$VERSION" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "Najnowsza wersja: $TOP, najnowsza w linii ${VERSION%.*}: $TOP_MINOR"
+
+      - name: Przygotuj QEMU (emulacja arm64 i arm/v7)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Przygotuj buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Zaloguj do GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Adnotacje także na poziomie indeksu: dla obrazu wieloarchitekturowego GHCR czyta
+      # opis z indeksu, nie z manifestów poszczególnych platform. flavor latest=false:
+      # o latest decyduje wyłącznie krok newest (semver dodałby go sam).
+      - name: Tagi i etykiety obrazu
+        id: meta
+        uses: docker/metadata-action@v5
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
+        with:
+          images: ${{ env.GHCR_IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}},value=v${{ env.VERSION }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ env.VERSION }},enable=${{ steps.newest.outputs.minor }}
+            type=raw,value=latest,enable=${{ steps.newest.outputs.latest }}
+          labels: |
+            org.opencontainers.image.title=Tunnelbox
+            org.opencontainers.image.description=Several Fortinet SSL-VPN / IPsec tunnels at once, in one Docker container, driven from your browser.
+            org.opencontainers.image.licenses=MIT
+
+      - name: Zbuduj i wypchnij obraz (amd64, arm64, arm/v7)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          # osobny zakres cache — nie wypiera warstw obrazu amd64 z joba release
+          cache-from: type=gha,scope=images
+          cache-to: type=gha,scope=images,mode=max
+
+      - name: Podsumowanie
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Obraz $VERSION w GHCR"
+            echo
+            echo "Platformy: linux/amd64, linux/arm64, linux/arm/v7 — digest \`$DIGEST\`"
+            echo
+            printf '%s\n' "$TAGS" | while read -r tag; do
+              if [ -n "$tag" ]; then echo "- \`$tag\`"; fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Te same tagi na Docker Hub — kopia manifestów z GHCR (imagetools), więc obraz jest
+  # bajt w bajt ten sam i nic nie buduje się drugi raz. Wymaga sekretów DOCKERHUB_USERNAME
+  # i DOCKERHUB_TOKEN (token z zakresem Read, Write, Delete, bo węższego Docker Hub nie
+  # przyjmuje przy podmianie opisu repozytorium); nazwę repozytorium zmienia zmienna
+  # DOCKERHUB_REPOSITORY (domyślnie mysttic/tunnelbox). Bez sekretów job kończy się
+  # ostrzeżeniem. Osobny job, bo awaria Docker Hub nie może wstrzymać wydania.
+  dockerhub:
+    name: Kopia obrazu na Docker Hub
+    needs: [version, images]
+    if: needs.version.outputs.publishing == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read    # odczyt obrazu z ghcr.io, póki pakiet jest prywatny
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GHCR_IMAGE: ghcr.io/mysttic/tunnelbox
+      DOCKERHUB_REPOSITORY: ${{ vars.DOCKERHUB_REPOSITORY || 'mysttic/tunnelbox' }}
+      # sekrety jako env, bo warunek kroku (if:) nie może czytać secrets bezpośrednio
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    steps:
+      - name: Sekrety Docker Hub
+        id: enabled
+        run: |
+          if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
+            echo "on=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "on=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Brak sekretów DOCKERHUB_USERNAME / DOCKERHUB_TOKEN — obraz jest tylko w GHCR."
+          fi
+
+      - name: Pobierz kod
+        if: steps.enabled.outputs.on == 'true'
+        uses: actions/checkout@v4
+
+      # ta sama reguła co w jobie images, liczona w chwili uruchomienia tego joba
+      - name: Czy to najnowsze wydanie
+        if: steps.enabled.outputs.on == 'true'
+        id: newest
+        run: |
+          set -euo pipefail
+          # błąd sieci przy ls-remote ma przerwać job — gdyby lista tagów wyszła pusta,
+          # starsza wersja uznałaby się za najnowszą
+          REMOTE="$(git ls-remote --tags --refs origin 'refs/tags/v*')"
+          ALL="$( { printf '%s\n' "$REMOTE" | sed 's#.*refs/tags/v##' \
+                    | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true; }; echo "$VERSION")"
+          TOP="$(printf '%s\n' "$ALL" | sort -V | tail -1)"
+          TOP_MINOR="$(printf '%s\n' "$ALL" | awk -F. -v m="${VERSION%.*}" '$1"."$2 == m' | sort -V | tail -1)"
+          echo "latest=$([ "$TOP" = "$VERSION" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "minor=$([ "$TOP_MINOR" = "$VERSION" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "Najnowsza wersja: $TOP, najnowsza w linii ${VERSION%.*}: $TOP_MINOR"
+
+      - name: Przygotuj buildx
+        if: steps.enabled.outputs.on == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Zaloguj do GHCR
+        if: steps.enabled.outputs.on == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Zaloguj do Docker Hub
+        if: steps.enabled.outputs.on == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
+
+      - name: Skopiuj tagi z GHCR
+        if: steps.enabled.outputs.on == 'true'
+        env:
+          LATEST: ${{ steps.newest.outputs.latest }}
+          MINOR: ${{ steps.newest.outputs.minor }}
+        run: |
+          set -euo pipefail
+          DST="docker.io/$DOCKERHUB_REPOSITORY"
+          set -- --tag "$DST:$VERSION"
+          if [ "$MINOR" = "true" ]; then set -- "$@" --tag "$DST:${VERSION%.*}"; fi
+          if [ "$LATEST" = "true" ]; then set -- "$@" --tag "$DST:latest"; fi
+          docker buildx imagetools create "$@" "$GHCR_IMAGE:$VERSION"
+          docker buildx imagetools inspect "$DST:$VERSION"
+          {
+            echo "### Obraz $VERSION na Docker Hub"
+            echo
+            for arg in "$@"; do
+              if [ "$arg" != "--tag" ]; then echo "- \`$arg\`"; fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # README.md jest dwujęzycznym wejściem do projektu; względne linki (docs/, obrazki)
+      # enable-url-completion zamienia na pełne adresy w repozytorium na GitHubie.
+      - name: Opis repozytorium na Docker Hub
+        if: steps.enabled.outputs.on == 'true' && steps.newest.outputs.latest == 'true'
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
+          repository: ${{ env.DOCKERHUB_REPOSITORY }}
+          readme-filepath: ./README.md
+          short-description: "Several Fortinet SSL-VPN / IPsec tunnels at once, in one Docker container, driven from your browser."
+          enable-url-completion: true
+
+  # Kopia paczki na stronie z pobieraniem (hub Mysttic/Mysttic, GitHub Pages). Stamtąd
+  # strona projektu daje paczkę do pobrania i tam o nowe wersje pytają zainstalowane
+  # panele (app/updates.py) i instalator (packaging/update-launcher.ps1):
+  # tag tunnelbox-vX.Y.Z, plik tunnelbox-X.Y.Z.zip, a w nim folder tunnelbox-X.Y.Z ze
+  # start.ps1 (instalator przyjmuje tylko pliki spod github.com/Mysttic/Mysttic/releases/
+  # download/). Hub trzyma wydania kilku programów, więc job rusza wyłącznie wydania
+  # z prefiksem tunnelbox-v. Zmiana tego kontraktu psuje aktualizację osobom, które mają
+  # już program, a dowiedzą się o tym dopiero wtedy, gdy przestanie działać.
+  site:
+    name: Kopia na stronie z pobieraniem
+    needs: [version, release]
+    if: needs.version.outputs.publishing == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read   # gh release download z tego repozytorium (GITHUB_TOKEN)
+    env:
+      HUB: Mysttic/Mysttic
+      PROJECT: tunnelbox            # prefiks wydań tego programu na stronie
+      NAME: Tunnelbox
+      SITE: https://mysttic.github.io/Mysttic/tunnelbox/
+      VERSION: ${{ needs.version.outputs.version }}
+      TAG: ${{ needs.version.outputs.tag }}
+      HUB_TAG: tunnelbox-v${{ needs.version.outputs.version }}
+    steps:
+      - name: Pobierz kod
+        uses: actions/checkout@v4
+
+      # Kopia starszej wersji (ponowne uruchomienie nieudanego przebiegu, gdy wyszła już
+      # nowsza) nie może zastąpić na stronie nowszej: krok sprzątania skasowałby ją,
+      # a panele dostałyby starszą wersję.
+      - name: Czy to najnowsze wydanie
+        id: newest
+        run: |
+          set -euo pipefail
+          # błąd sieci przy ls-remote ma przerwać job — gdyby lista tagów wyszła pusta,
+          # starsza wersja uznałaby się za najnowszą
+          REMOTE="$(git ls-remote --tags --refs origin 'refs/tags/v*')"
+          ALL="$( { printf '%s\n' "$REMOTE" | sed 's#.*refs/tags/v##' \
+                    | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true; }; echo "$VERSION")"
+          TOP="$(printf '%s\n' "$ALL" | sort -V | tail -1)"
+          TOP_MINOR="$(printf '%s\n' "$ALL" | awk -F. -v m="${VERSION%.*}" '$1"."$2 == m' | sort -V | tail -1)"
+          echo "latest=$([ "$TOP" = "$VERSION" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "minor=$([ "$TOP_MINOR" = "$VERSION" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "Najnowsza wersja: $TOP, najnowsza w linii ${VERSION%.*}: $TOP_MINOR"
+
+      - name: Poświadczenie do repozytorium strony
+        env:
+          HUB_TOKEN: ${{ secrets.HUB_TOKEN }}
+          LATEST: ${{ steps.newest.outputs.latest }}
+        run: |
+          set -uo pipefail
+          if [ "$LATEST" != "true" ]; then
+            echo "::notice::Jest już nowsze wydanie niż $TAG, kopia na stronie zostaje bez zmian."
+            exit 0
+          fi
+          if [ -z "${HUB_TOKEN:-}" ]; then
+            echo "::error::Brak sekretu HUB_TOKEN. Wydanie $TAG powstało, ale bez kopii na stronie nikt go nie pobierze ani nie zobaczy w panelu."
+            echo "::error::Potrzebny token osobisty z uprawnieniem Contents: read and write do $HUB."
+            exit 1
+          fi
+
+      - name: Paczka z wydania
+        if: steps.newest.outputs.latest == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p copy
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --dir copy --pattern "tunnelbox-$VERSION.zip"
+          ls -la copy
+          if [ ! -f "copy/tunnelbox-$VERSION.zip" ]; then
+            echo "::error::Brak pliku tunnelbox-$VERSION.zip w wydaniu $TAG."
+            exit 1
+          fi
+
+      - name: Opis wydania
+        if: steps.newest.outputs.latest == 'true'
+        run: |
+          set -euo pipefail
+          {
+            echo "$NAME $VERSION"
+            echo
+            echo "$SITE"
+          } > notes.md
+          cat notes.md
+
+      - name: Wydanie na stronie
+        if: steps.newest.outputs.latest == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.HUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if gh release view "$HUB_TAG" --repo "$HUB" >/dev/null 2>&1; then
+            gh release delete "$HUB_TAG" --repo "$HUB" --cleanup-tag --yes
+          fi
+          gh release create "$HUB_TAG" "copy/$PROJECT-$VERSION.zip" \
+            --repo "$HUB" \
+            --title "$NAME $VERSION" \
+            --notes-file notes.md \
+            --target master
+
+      - name: Na stronie zostaje jedna wersja
+        if: steps.newest.outputs.latest == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.HUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # nowe wydanie jest już na miejscu, więc strona ani przez chwilę nie jest pusta;
+          # filtr ^$PROJECT-v pilnuje, żeby nie ruszyć wydań innych programów
+          gh release list --repo "$HUB" --limit 100 --json tagName -q '.[].tagName' \
+            | { grep -E "^$PROJECT-v" || true; } \
+            | { grep -vxF "$HUB_TAG" || true; } \
+            | while read -r old; do
+                echo "Usuwam $old"
+                gh release delete "$old" --repo "$HUB" --cleanup-tag --yes
+              done
+          echo "$HUB_TAG stoi na stronie: $SITE" >> "$GITHUB_STEP_SUMMARY"
+
+  # Wydanie, które padło w połowie (np. obraz jest w GHCR, a ZIP-a nie ma), ma być
+  # widać w Issues, a nie tylko na czerwonym przebiegu w zakładce Actions. Kolejne nieudane
+  # przebiegi tej samej wersji dopisują się do otwartego zgłoszenia zamiast mnożyć nowe.
+  report-failure:
+    name: Zgłoszenie nieudanego wydania
+    needs: [version, images, release, dockerhub, site]
+    # failure() jest prawdziwe, gdy padł którykolwiek job z needs. Job, który przekroczył
+    # timeout-minutes, kończy się jako „cancelled" (a cały przebieg nie), więc łapiemy też
+    # ten wynik; ręczne anulowanie całego przebiegu (cancelled()) zgłoszenia nie zakłada.
+    if: failure() || (!cancelled() && contains(needs.*.result, 'cancelled'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write   # etykieta, zgłoszenie i komentarz
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      # pusta, gdy padł już sam odczyt pliku VERSION
+      VERSION: ${{ needs.version.outputs.version }}
+      RESULT_VERSION: ${{ needs.version.result }}
+      RESULT_IMAGES: ${{ needs.images.result }}
+      RESULT_RELEASE: ${{ needs.release.result }}
+      RESULT_DOCKERHUB: ${{ needs.dockerhub.result }}
+      RESULT_SITE: ${{ needs.site.result }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Załóż zgłoszenie albo dopisz przebieg
+        run: |
+          set -euo pipefail
+          if [ -n "$VERSION" ]; then
+            TITLE="Release v$VERSION failed"
+          else
+            TITLE="Release failed (VERSION file unreadable)"
+          fi
+
+          # wyniki jobów: success / failure / cancelled / skipped
+          FAILED=""
+          for pair in "version=$RESULT_VERSION" "images=$RESULT_IMAGES" "release=$RESULT_RELEASE" \
+                      "dockerhub=$RESULT_DOCKERHUB" "site=$RESULT_SITE"; do
+            case "${pair#*=}" in
+              failure) FAILED="${FAILED:+$FAILED, }${pair%%=*}" ;;
+              cancelled) FAILED="${FAILED:+$FAILED, }${pair%%=*} (cancelled / timed out)" ;;
+            esac
+          done
+
+          {
+            echo "The release workflow failed for version **${VERSION:-unknown}**."
+            echo
+            echo "| Job | Result |"
+            echo "|---|---|"
+            echo "| version | $RESULT_VERSION |"
+            echo "| images | $RESULT_IMAGES |"
+            echo "| release | $RESULT_RELEASE |"
+            echo "| dockerhub | $RESULT_DOCKERHUB |"
+            echo "| site | $RESULT_SITE |"
+            echo
+            echo "Failed jobs: ${FAILED:-none reported}"
+            echo
+            echo "Run: $RUN_URL"
+          } > body.md
+
+          gh label create release-failed --color B60205 --description "Release workflow failed" --force
+
+          # dokładne porównanie tytułu w jq — wyszukiwarka GitHuba dopasowuje słowa, nie całość
+          NUMBER="$(gh issue list --state open --label release-failed --limit 100 --json number,title \
+            | jq -r --arg t "$TITLE" 'map(select(.title == $t)) | first | .number // empty')"
+
+          if [ -n "$NUMBER" ]; then
+            {
+              echo "Failed again (failed jobs: ${FAILED:-none reported})."
+              echo
+              echo "Run: $RUN_URL"
+            } > comment.md
+            gh issue comment "$NUMBER" --body-file comment.md
+            echo "Dopisano przebieg do zgłoszenia #$NUMBER" >> "$GITHUB_STEP_SUMMARY"
+          else
+            URL="$(gh issue create --title "$TITLE" --label release-failed --body-file body.md)"
+            echo "Założono zgłoszenie: $URL" >> "$GITHUB_STEP_SUMMARY"
+          fi

@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tunnelbox</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔐</text></svg>">
+</head>
+<body>
+  <header>
+    <h1>🔐 Tunnelbox <span id="app-version" class="version"></span></h1>
+    <div class="header-actions">
+      <button id="settings-btn" class="btn btn-ghost hidden" data-i18n="header.settings">⚙ Settings</button>
+      <button id="change-pass-btn" class="btn btn-ghost hidden" data-i18n="header.changePass">Change master password</button>
+      <button id="lock-btn" class="btn btn-ghost hidden" data-i18n="header.lock">Lock panel</button>
+    </div>
+  </header>
+
+  <!-- Ekran hasła głównego -->
+  <main id="unlock-view" class="hidden">
+    <div class="auth-card">
+      <div id="auth-create" class="hidden">
+        <h2 data-i18n="auth.createTitle">Welcome! Set a master password</h2>
+        <p class="muted" data-i18n="auth.createIntro">This password encrypts every VPN profile you
+          save. Remember it — it cannot be recovered.</p>
+        <div class="pass-wrap">
+          <input type="password" id="create-pass" data-i18n-ph="auth.createPass" placeholder="Master password (min. 4 characters)">
+          <button type="button" class="pass-toggle" data-target="create-pass" data-i18n-aria="auth.showPass" aria-label="Show password">👁</button>
+        </div>
+        <div class="pass-wrap">
+          <input type="password" id="create-pass2" data-i18n-ph="auth.repeatPass" placeholder="Repeat password">
+          <button type="button" class="pass-toggle" data-target="create-pass2" data-i18n-aria="auth.showPass" aria-label="Show password">👁</button>
+        </div>
+        <button id="create-btn" class="btn btn-primary btn-wide" data-i18n="auth.createBtn">Create vault</button>
+      </div>
+      <div id="auth-unlock" class="hidden">
+        <h2 data-i18n="auth.unlockTitle">Unlock the panel</h2>
+        <p class="muted" data-i18n="auth.unlockIntro">Enter your master password to reach your VPN profiles.</p>
+        <div class="pass-wrap">
+          <input type="password" id="unlock-pass" data-i18n-ph="auth.unlockPass" placeholder="Master password">
+          <button type="button" class="pass-toggle" data-target="unlock-pass" data-i18n-aria="auth.showPass" aria-label="Show password">👁</button>
+        </div>
+        <button id="unlock-btn" class="btn btn-primary btn-wide" data-i18n="auth.unlockBtn">Unlock</button>
+      </div>
+      <p id="auth-error" class="error hidden"></p>
+
+      <div class="auth-tools">
+        <span class="field-hint" data-i18n="auth.configFile">Configuration file</span>
+        <div class="toast-actions">
+          <button type="button" id="auth-export" class="btn btn-mini btn-ghost" data-i18n="auth.export">⬇️ Export</button>
+          <button type="button" id="auth-import" class="btn btn-mini btn-ghost" data-i18n="auth.import">⬆️ Import</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Główny widok -->
+  <main id="main-view" class="hidden">
+    <!-- Pasek aktualizacji — wypełnia go loadUpdate() z /api/update -->
+    <div id="update-bar" class="update-bar hidden">
+      <div class="update-text">
+        <strong id="update-title"></strong>
+        <span id="update-note" class="muted small"></span>
+        <!-- instalacja z rejestru (ghcr.io): zamiast paczki — polecenie do wpisania -->
+        <span id="update-registry" class="update-registry small hidden">
+          <span data-i18n="update.registryHint">Installed from the registry — in the folder with docker-compose.yml run:</span>
+          <!-- dwa osobne polecenia: „&&" nie działa w Windows PowerShell 5.1 -->
+          <code>docker compose pull</code> <code>docker compose up -d</code>
+        </span>
+      </div>
+      <div class="update-actions">
+        <button type="button" id="update-install" class="btn btn-mini btn-primary hidden" data-i18n="update.install">⬆️ Update</button>
+        <a id="update-download" class="btn btn-mini btn-ghost" target="_blank" rel="noopener" data-i18n="update.download">⬇️ Download package</a>
+        <a id="update-page" class="btn btn-mini btn-ghost" target="_blank" rel="noopener" data-i18n="update.whatsNew">What's new</a>
+        <button type="button" id="update-later" class="btn btn-mini btn-ghost" data-i18n="update.later">Later</button>
+      </div>
+    </div>
+    <div class="toolbar">
+      <h2 data-i18n="main.connections">VPN connections</h2>
+      <button id="add-btn" class="btn btn-primary" data-i18n="main.add">＋ Add connection</button>
+    </div>
+    <div id="profiles" class="cards"></div>
+    <p id="empty-hint" class="muted hidden" data-i18n="main.empty">
+      No connections yet. Click “Add connection”, fill in the form and you are done.
+    </p>
+  </main>
+
+  <!-- Edytor profilu -->
+  <dialog id="editor">
+    <form method="dialog" id="editor-form">
+      <h2 id="editor-title">New connection</h2>
+      <p id="editor-readonly-note" class="readonly-note hidden" data-i18n="editor.readonly">
+        🔒 This connection is active — read-only preview. Disconnect it first to change anything.
+      </p>
+      <p class="muted form-intro" data-i18n="editor.intro">
+        Enter the credentials for the client's VPN (you get them from the client or their
+        administrator), then list the machines you need to reach. The panel handles the rest.
+      </p>
+
+      <label><span data-i18n="editor.name">Connection name</span>
+        <span class="field-hint" data-i18n="editor.nameHint">anything you like, so you recognise it in the list</span>
+        <input id="f-name" required data-i18n-ph="editor.namePh" placeholder="e.g. Client X">
+      </label>
+      <label><span data-i18n="editor.vpnType">Connection type</span>
+        <span class="field-hint" data-i18n-html="editor.vpnTypeHint">pick what the client's administrator
+          told you. SSL-VPN is the ordinary Forti tunnel over port 443; you can spot IPsec by the
+          <strong>pre-shared key (PSK)</strong> you were given</span>
+        <select id="f-vpn-type">
+          <option value="ssl" data-i18n="editor.typeSsl">SSL-VPN (Forti) — default</option>
+          <option value="ipsec" data-i18n="editor.typeIpsec">IPsec</option>
+        </select>
+      </label>
+      <div class="row">
+        <label class="grow"><span data-i18n="editor.host">VPN server address</span>
+          <span class="field-hint" data-i18n="editor.hostHint">you can paste the whole address from Forti (e.g. https://vpn.client.com:443/myrealm) — we will split it up</span>
+          <input id="f-host" required data-i18n-ph="editor.hostPh" placeholder="e.g. vpn.client.com or 10.10.10.10">
+        </label>
+        <label class="w-port" id="f-port-wrap">
+          <span data-i18n="editor.port">Port</span>
+          <span class="field-hint" data-i18n="editor.portHint">usually 443</span>
+          <input id="f-port" type="number" value="443" min="1" max="65535" required>
+        </label>
+      </div>
+      <label id="f-realm-wrap"><span data-i18n="editor.realm">Realm / path (optional)</span>
+        <span class="field-hint" data-i18n-html="editor.realmHint">the part of the Forti address after the slash, e.g. <code>myrealm</code> — leave empty if there is none</span>
+        <input id="f-realm" data-i18n-ph="editor.realmPh" placeholder="e.g. myrealm" autocomplete="off">
+      </label>
+
+      <!-- pola wyłącznie dla IPsec -->
+      <div id="ipsec-fields" class="hidden">
+        <label><span data-i18n="editor.ipsecAuth">How the gateway authenticates you</span>
+          <span class="field-hint" data-i18n="editor.ipsecAuthHint">if you are not sure, leave the first
+            option — that is how most FortiGate dial-ups work</span>
+          <select id="f-ipsec-auth">
+            <option value="ikev1-psk-xauth" data-i18n="editor.authXauth">IKEv1: PSK + username and password (XAuth)</option>
+            <option value="ikev1-psk" data-i18n="editor.authIkev1">IKEv1: PSK only</option>
+            <option value="ikev2-psk" data-i18n="editor.authIkev2">IKEv2: PSK only</option>
+          </select>
+        </label>
+        <label><span data-i18n="editor.psk">Pre-shared key (PSK)</span>
+          <span class="field-hint" data-i18n="editor.pskHint">the same string on both ends of the tunnel —
+            you get it from the client's administrator</span>
+          <div class="pass-wrap">
+            <input id="f-ipsec-psk" type="password" autocomplete="new-password">
+            <button type="button" class="pass-toggle" data-target="f-ipsec-psk" data-i18n-aria="auth.showKey" aria-label="Show key">👁</button>
+          </div>
+        </label>
+        <div class="row">
+          <label class="grow"><span data-i18n="editor.localId">Local identifier (optional)</span>
+            <span class="field-hint" data-i18n="editor.localIdHint">group name / “peer ID”, if the client gave you one</span>
+            <input id="f-ipsec-local-id" data-i18n-ph="editor.localIdPh" placeholder="e.g. vpn-group" autocomplete="off">
+          </label>
+          <label class="grow"><span data-i18n="editor.remoteId">Gateway identifier (optional)</span>
+            <span class="field-hint" data-i18n="editor.remoteIdHint">leave empty if you do not have one</span>
+            <input id="f-ipsec-remote-id" data-i18n-ph="editor.remoteIdPh" placeholder="e.g. vpn.client.com" autocomplete="off">
+          </label>
+        </div>
+        <label><span data-i18n="editor.remoteTs">Networks behind the VPN (optional)</span>
+          <span class="field-hint" data-i18n-html="editor.remoteTsHint">the client's networks, comma separated,
+            e.g. <code>10.10.0.0/16, 192.168.5.0/24</code> — empty means “everything through the tunnel”</span>
+          <input id="f-ipsec-remote-ts" data-i18n-ph="editor.remoteTsPh" placeholder="e.g. 10.10.0.0/16" autocomplete="off">
+        </label>
+        <div id="f-aggressive-wrap">
+          <label class="checkbox">
+            <input id="f-ipsec-aggressive" type="checkbox">
+            <span data-i18n="editor.aggressive">Aggressive mode</span>
+          </label>
+          <p class="field-hint checkbox-hint" data-i18n="editor.aggressiveHint">
+            Tick this only when the client's administrator says so — it is sometimes required when
+            the gateway recognises you by the local identifier. IKEv1 only.
+          </p>
+        </div>
+      </div>
+
+      <div class="row" id="creds-row">
+        <label class="grow"><span data-i18n="editor.username">Username</span>
+          <input id="f-username" required autocomplete="off">
+        </label>
+        <label class="grow"><span data-i18n="editor.password">Password</span>
+          <div class="pass-wrap">
+            <input id="f-password" type="password" required autocomplete="new-password">
+            <button type="button" class="pass-toggle" data-target="f-password" data-i18n-aria="auth.showPass" aria-label="Show password">👁</button>
+          </div>
+        </label>
+      </div>
+      <div id="token-block">
+        <label class="checkbox">
+          <input id="f-token" type="checkbox">
+          <span data-i18n="editor.token">This connection needs a token (two-factor authentication)</span>
+        </label>
+        <div id="token-modes" class="token-modes hidden">
+          <label class="radio">
+            <input type="radio" name="token-mode" value="code" checked>
+            <span data-i18n="editor.tokenCode">I type a one-time code (from SMS or an app)</span>
+          </label>
+          <label class="radio" id="token-push-wrap">
+            <input type="radio" name="token-mode" value="push">
+            <span data-i18n="editor.tokenPush">I approve the sign-in in a phone app (push)</span>
+          </label>
+        </div>
+      </div>
+
+      <h3 data-i18n="editor.machines">Machines in the client's network</h3>
+      <p class="muted" data-i18n-html="editor.machinesIntro">
+        List the computers or servers you need to reach once connected. For each one give its
+        IP address in the client's network and the service port (e.g. 3389 for remote desktop).
+        After connecting, the panel shows a local shortcut such as <code>127.0.0.2:13391</code>
+        — you type that in your RDP/SSH client instead of the real address. Nothing else to set up.
+      </p>
+      <div id="forwards"></div>
+      <button type="button" id="add-forward" class="btn btn-ghost" data-i18n="editor.addMachine">＋ Add machine</button>
+
+      <p id="editor-error" class="error hidden"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-ghost" id="editor-cancel" data-i18n="editor.cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="editor-save" data-i18n="editor.save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Token -->
+  <dialog id="otp-dialog">
+    <form method="dialog" id="otp-form">
+      <h2 data-i18n="otp.title">Enter your token</h2>
+      <p class="muted" id="otp-hint"></p>
+      <input id="otp-input" data-i18n-ph="otp.ph" placeholder="One-time code" autocomplete="one-time-code" required>
+      <p id="otp-error" class="error hidden"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-ghost" id="otp-cancel" data-i18n="editor.cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" data-i18n="otp.connect">Connect</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Ustawienia panelu -->
+  <dialog id="settings-dialog">
+    <form method="dialog" id="settings-form">
+      <h2 data-i18n="settings.title">Settings</h2>
+      <label><span data-i18n="settings.language">Language</span>
+        <span class="field-hint" data-i18n="settings.languageHint">Applies to the whole panel, including messages from connections.</span>
+        <select id="set-lang">
+          <option value="en">English</option>
+          <option value="pl">Polski</option>
+        </select>
+      </label>
+      <label class="checkbox">
+        <input id="set-fast-rdp" type="checkbox">
+        <span data-i18n="settings.fastRdp">Fast RDP connect</span>
+      </label>
+      <p class="field-hint checkbox-hint" data-i18n-html="settings.fastRdpHint">
+        On: <strong>“Connect over RDP”</strong> opens remote desktop straight away — no file
+        saved and no Windows warning on every connection.<br>
+        Off: you get <strong>“Download .rdp file”</strong> instead — the file lands in Downloads
+        and you open it with a double click.
+      </p>
+      <label class="checkbox">
+        <input id="set-check-updates" type="checkbox">
+        <span data-i18n="settings.checkUpdates">Check for updates</span>
+      </label>
+      <p class="field-hint checkbox-hint" data-i18n-html="settings.checkUpdatesHint">
+        On: once a day the panel asks the releases page whether a newer version exists and shows
+        a bar above your connections. It sends none of your data.<br>
+        Off: the panel connects to nothing except your own VPN tunnels.
+      </p>
+      <div class="toast-actions">
+        <button type="button" id="settings-check-now" class="btn btn-mini btn-ghost" data-i18n="settings.checkNow">🔄 Check now</button>
+      </div>
+      <p id="settings-update-info" class="field-hint"></p>
+
+      <h3 data-i18n="settings.configFile">Configuration file</h3>
+      <p class="field-hint" data-i18n-html="settings.configHint">
+        Export writes every connection into one encrypted file (still protected by your master
+        password) — good for a backup or for moving to another computer. Import replaces the
+        current configuration; the previous one stays beside it as a <code>.bak</code> copy, and
+        active connections are disconnected.
+      </p>
+      <div class="toast-actions">
+        <button type="button" id="settings-export" class="btn btn-mini btn-ghost" data-i18n="settings.export">⬇️ Export configuration</button>
+        <button type="button" id="settings-import" class="btn btn-mini btn-ghost" data-i18n="settings.import">⬆️ Import configuration</button>
+      </div>
+
+      <p id="settings-error" class="error hidden"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-ghost" id="settings-cancel" data-i18n="settings.cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="settings-save" data-i18n="settings.save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Dołożenie maszyny do działającego połączenia -->
+  <dialog id="add-fwd-dialog">
+    <form method="dialog" id="add-fwd-form">
+      <h2 data-i18n="addFwd.title">Add machine</h2>
+      <p class="muted" id="af-hint"></p>
+      <label><span data-i18n="editor.machineName">Machine name (optional)</span>
+        <span class="field-hint" data-i18n="editor.machineNameHint">type RDP, SSH, VNC or https — the port fills itself in</span>
+        <input id="af-label" data-i18n-ph="editor.machineNamePh" placeholder="e.g. RDP server" autocomplete="off">
+      </label>
+      <div class="row">
+        <label class="grow"><span data-i18n="editor.machineIp">IP address in the client's network</span>
+          <input id="af-ip" data-i18n-ph="editor.machineIpPh" placeholder="e.g. 10.10.10.11" autocomplete="off">
+        </label>
+        <label class="w-port"><span data-i18n="editor.machinePort">Service port</span>
+          <input id="af-rport" type="number" min="1" max="65535" data-i18n-ph="editor.machinePortPh" placeholder="e.g. 3389">
+        </label>
+      </div>
+      <p id="af-error" class="error hidden"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-ghost" id="af-cancel" data-i18n="addFwd.cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="af-save" data-i18n="addFwd.save">Add</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Zmiana hasła głównego -->
+  <dialog id="change-pass-dialog">
+    <form method="dialog" id="change-pass-form">
+      <h2 data-i18n="changePass.title">Change master password</h2>
+      <p class="muted" data-i18n="changePass.intro">Enter your current password and the new one.
+        Every saved connection is re-encrypted with the new password.</p>
+      <div class="pass-wrap">
+        <input type="password" id="cp-current" data-i18n-ph="changePass.current" placeholder="Current master password">
+        <button type="button" class="pass-toggle" data-target="cp-current" data-i18n-aria="auth.showPass" aria-label="Show password">👁</button>
+      </div>
+      <div class="pass-wrap">
+        <input type="password" id="cp-new" data-i18n-ph="changePass.new" placeholder="New password (min. 4 characters)">
+        <button type="button" class="pass-toggle" data-target="cp-new" data-i18n-aria="auth.showPass" aria-label="Show password">👁</button>
+      </div>
+      <div class="pass-wrap">
+        <input type="password" id="cp-new2" data-i18n-ph="changePass.repeat" placeholder="Repeat the new password">
+        <button type="button" class="pass-toggle" data-target="cp-new2" data-i18n-aria="auth.showPass" aria-label="Show password">👁</button>
+      </div>
+      <p id="cp-error" class="error hidden"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-ghost" id="cp-cancel" data-i18n="changePass.cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="cp-save" data-i18n="changePass.save">Change password</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Import pliku konfiguracji -->
+  <dialog id="import-dialog">
+    <form method="dialog" id="import-form">
+      <h2 data-i18n="import.title">Import configuration</h2>
+      <p class="muted" data-i18n-html="import.intro">Pick the <code>.enc</code> file saved earlier by
+        the export and give the master password that protects it.</p>
+      <p class="readonly-note" data-i18n-html="import.warning">
+        ⚠️ The current configuration will be replaced and active connections dropped.
+        The previous version is saved beside it as a <code>.bak</code> copy.
+      </p>
+      <label><span data-i18n="import.file">Configuration file</span>
+        <input type="file" id="imp-file" accept=".enc,application/octet-stream">
+      </label>
+      <label><span data-i18n="import.pass">Master password for that file</span>
+        <div class="pass-wrap">
+          <input type="password" id="imp-pass" autocomplete="off">
+          <button type="button" class="pass-toggle" data-target="imp-pass" data-i18n-aria="auth.showPass" aria-label="Show password">👁</button>
+        </div>
+      </label>
+      <p id="imp-error" class="error hidden"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-ghost" id="imp-cancel" data-i18n="import.cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="imp-save" data-i18n="import.save">Import</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- menu akcji „3 kropki" dla adresów (globalne, poza kartami) -->
+  <div id="action-menu" class="action-menu hidden"></div>
+
+  <!-- podpowiedź, gdy nic się nie otworzyło (np. protokół niezarejestrowany) -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/i18n.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

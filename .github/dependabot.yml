@@ -1,0 +1,51 @@
+# Dependabot: raz w tygodniu PR-y z aktualizacjami zależności, kierowane do develop —
+# main dostaje zmiany wyłącznie przez PR develop -> main, który wyzwala wydanie.
+# Podbicia minor i patch idą jednym PR-em na ekosystem; major przychodzi osobno, bo zwykle
+# wymaga przejrzenia zmian. Wiadomości commitów (chore(deps): …, chore(deps-dev): …)
+# przechodzą commitlint z ci.yml.
+version: 2
+updates:
+  # zależności panelu (app/requirements.txt) i testów backendu (app/requirements-dev.txt)
+  - package-ecosystem: pip
+    directory: /app
+    schedule:
+      interval: weekly
+    target-branch: develop
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # Playwright i reszta testów e2e (tests/e2e/package-lock.json)
+  - package-ecosystem: npm
+    directory: /tests/e2e
+    schedule:
+      interval: weekly
+    target-branch: develop
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # akcje w .github/workflows
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    target-branch: develop
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch

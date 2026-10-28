@@ -1,0 +1,108 @@
+name: CI
+
+# Uruchamiane przy każdym PR, niezależnie od gałęzi docelowej (develop, main), oraz na
+# żądanie (workflow_dispatch). Zdarzenie pull_request obejmuje też każdy kolejny push do
+# gałęzi PR (synchronize), więc osobny wyzwalacz push jest zbędny i powodowałby podwójne
+# przebiegi.
+# Aby PR-y były faktycznie blokowane przy czerwonych testach, włącz Branch protection
+# na main i oznacz te checki jako wymagane.
+#
+# Cache (pip, npm, Playwright) zapisany podczas PR należy do zakresu tego PR-a — kolejny PR
+# go nie zobaczy, bo przebieg czyta tylko własny zakres, gałąź bazową i gałąź domyślną.
+# Ten workflow nie startuje przy push do main, więc cache w zakresie main trzeba zasiać
+# ręcznie: po każdej zmianie tests/e2e/package-lock.json lub app/requirements*.txt odpal raz
+# „Run workflow" na gałęzi main. Bez tego pierwszy przebieg każdego PR-a leci na zimno,
+# a sama instalacja Chromium to 1-2 minuty.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# jeden przebieg na PR — nowy push anuluje poprzedni, wciąż trwający
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Testy backendu (pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: 'pip'
+          # requirements-dev.txt to tylko „-r requirements.txt" + pytest i httpx, więc klucz
+          # cache'u musi obejmować oba pliki — inaczej zmiana w requirements.txt nie unieważnia
+          # cache'u i nowe koła są pobierane przy każdym przebiegu, a przy trafionym kluczu
+          # krok zapisujący cache po jobie nic nie dopisuje.
+          cache-dependency-path: |
+            app/requirements-dev.txt
+            app/requirements.txt
+      - name: Instaluj zależności
+        run: pip install -r app/requirements-dev.txt
+      - name: pytest
+        run: python -m pytest tests -q
+
+  frontend:
+    name: Testy e2e (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: tests/e2e
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: 'npm'
+          cache-dependency-path: tests/e2e/package-lock.json
+      - name: Instaluj zależności
+        run: npm ci
+      # actions/cache trzyma binarkę przeglądarki (~/.cache/ms-playwright), ale nie
+      # pakiety systemowe instalowane przez --with-deps (apt-get) — dlatego dwa kroki.
+      - name: Cache przeglądarek Playwright
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('tests/e2e/package-lock.json') }}
+          # po zmianie lockfile'a częściowe trafienie zamiast pełnego pudła: binarka
+          # z poprzedniej wersji zostaje na dysku, więc instalacja poniżej ma mniej do pobrania
+          restore-keys: ${{ runner.os }}-playwright-
+      - name: Instaluj przeglądarkę (pełna, gdy brak cache)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+      - name: Doinstaluj zależności systemowe (gdy cache trafił)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+      - name: Playwright test
+        run: npx playwright test
+
+  # Wiadomości commitów w konwencji Conventional Commits (reguły w .commitlintrc.json):
+  # z nich da się złożyć changelog i od razu widać, które zmiany psują zgodność (feat!:).
+  commits:
+    name: Konwencja commitów (commitlint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # zakres base..head istnieje tylko w PR; ręczne uruchomienie nie ma czego sprawdzać
+    if: github.event_name == 'pull_request'
+    steps:
+      # pełna historia — commitlint czyta git log base..head
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # wersje przypięte na sztywno, bez package.json w katalogu głównym
+      - name: Instaluj commitlint
+        run: npm install --no-save --no-package-lock @commitlint/cli@21.2.3 @commitlint/config-conventional@21.2.3
+      - name: commitlint
+        run: npx commitlint --from "${{ github.event.pull_request.base.sha }}" --to "${{ github.event.pull_request.head.sha }}" --verbose

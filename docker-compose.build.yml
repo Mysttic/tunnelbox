@@ -1,0 +1,10 @@
+# Nakładka do uruchamiania ze źródeł (używają jej start.sh i start.ps1):
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+# Zamiast pobierać obraz z rejestru, buduje go lokalnie z Dockerfile jako tunnelbox:dev.
+services:
+  tunnelbox:
+    build: .
+    image: tunnelbox:dev
+    pull_policy: build
+    environment:
+      TUNNELBOX_INSTALL: source

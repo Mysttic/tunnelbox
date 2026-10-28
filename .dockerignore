@@ -1,0 +1,9 @@
+data/
+vpn-config/
+tests/
+.github/
+.git/
+*.md
+!THIRD_PARTY.md
+start.*
+docker-compose*.yml
