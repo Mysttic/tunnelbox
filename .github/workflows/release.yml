@@ -413,7 +413,7 @@ jobs:
       # enable-url-completion zamienia na pełne adresy w repozytorium na GitHubie.
       - name: Opis repozytorium na Docker Hub
         if: steps.enabled.outputs.on == 'true' && steps.newest.outputs.latest == 'true'
-        uses: peter-evans/dockerhub-description@v4
+        uses: peter-evans/dockerhub-description@v5
         with:
           username: ${{ env.DOCKERHUB_USERNAME }}
           password: ${{ env.DOCKERHUB_TOKEN }}
