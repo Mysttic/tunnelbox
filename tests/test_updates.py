@@ -28,7 +28,7 @@ def wydanie(version, *, prefix=updates.TAG_PREFIX, assets=None, draft=False,
             {
                 "name": name,
                 "browser_download_url":
-                    f"https://github.com/Mysttic/Mysttic/releases/download/{prefix}{version}/{name}",
+                    f"https://github.com/Mysttic/tunnelbox/releases/download/{prefix}{version}/{name}",
                 "size": 140 * 1024 * 1024,
             }
             for name in assets
@@ -74,46 +74,53 @@ def test_porownanie_jest_liczbowe_a_nie_tekstowe(monkeypatch):
 
 # --- wybór wydania ---
 
-def test_bierze_pierwsze_wydanie_z_prefiksem_projektu():
-    """Hub trzyma wydania innych programów: mamy je pomijać."""
+def test_bierze_najwyzsza_wersje_a_nie_pierwsza_z_listy():
+    """Repozytorium trzyma całą historię wydań, a lista nie idzie w kolejności publikacji:
+    ponownie uruchomione wydanie starszej wersji może stać przed nowszą. Liczy się numer,
+    porównywany liczbowo."""
     lista = [
-        wydanie("9.9.9", prefix="chatt-v"),
-        wydanie("1.0.3", prefix="wtyczka-yt-v"),
-        wydanie("2.8.0"),
-        wydanie("2.7.0"),
+        wydanie("3.0.1"),
+        wydanie("3.10.0"),
+        wydanie("3.9.0"),
+        wydanie("3.1.0"),
     ]
-    assert updates.pick_release(lista)["tag_name"] == "tunnelbox-v2.8.0"
+    assert updates.pick_release(lista)["tag_name"] == "v3.10.0"
 
 
-def test_wydanie_fortivpn2_z_huba_nie_jest_brane_za_wydanie():
-    """Stare wydanie FortiVPN 2 na hubie (fortivpn2-v…) to inny program dla panelu: nawet
-    z wyższym numerem nie może zostać wzięte za wydanie Tunnelboxa."""
-    stare = wydanie("9.9.9", prefix="fortivpn2-v", assets=["fortivpn2-9.9.9.zip"])
-    assert updates.pick_release([stare, wydanie("3.0.0")])["tag_name"] == "tunnelbox-v3.0.0"
-    assert updates.pick_release([stare]) is None
+def test_tagi_huba_nie_sa_wydaniami_tego_repozytorium():
+    """Hub Mysttic/Mysttic nosi wydania pod tunnelbox-v… i fortivpn2-v…, inne programy pod
+    własnymi prefiksami. Takie tagi nie są wydaniami tego repozytorium: nawet z wyższym
+    numerem nie mogą zostać wzięte za wydanie Tunnelboxa."""
+    obce = [
+        wydanie("9.9.9", prefix="tunnelbox-v"),
+        wydanie("9.9.9", prefix="fortivpn2-v", assets=["fortivpn2-9.9.9.zip"]),
+        wydanie("9.9.9", prefix="chatt-v"),
+    ]
+    assert updates.pick_release(obce + [wydanie("3.1.0")])["tag_name"] == "v3.1.0"
+    assert updates.pick_release(obce) is None
     # plik pod starą nazwą też nie pasuje do kontraktu
     assert updates.pick_asset(wydanie("3.1.0", assets=["fortivpn2-3.1.0.zip"])) is None
 
 
 def test_prefiks_bez_numeru_wersji_jest_pomijany():
-    """Po prefiksie „tunnelbox-v" musi stać numer wersji: tag w rodzaju „tunnelbox-viewer"
-    też się od niego zaczyna."""
+    """Po „v" musi stać numer wersji: tag w rodzaju „viewer-1.0.0" też się od niego zaczyna."""
     lista = [
-        wydanie("iewer-1.0.0"),            # tag: tunnelbox-viewer-1.0.0
-        wydanie("3.0.0-rc1"),              # tag: tunnelbox-v3.0.0-rc1
-        wydanie("3.0"),                    # tag: tunnelbox-v3.0
+        wydanie("iewer-1.0.0"),            # tag: viewer-1.0.0
+        wydanie("3.0.0-rc1"),              # tag: v3.0.0-rc1
+        wydanie("3.0"),                    # tag: v3.0
         wydanie("2.9.0"),
     ]
-    assert updates.pick_release(lista)["tag_name"] == "tunnelbox-v2.9.0"
+    assert updates.pick_release(lista)["tag_name"] == "v2.9.0"
 
 
 def test_pomija_szkice_i_wydania_wstepne():
+    """Szkic i wydanie wstępne z wyższym numerem nie wygrywają z wydanym."""
     lista = [
         wydanie("2.9.0", draft=True),
         wydanie("2.8.5", prerelease=True),
         wydanie("2.8.0"),
     ]
-    assert updates.pick_release(lista)["tag_name"] == "tunnelbox-v2.8.0"
+    assert updates.pick_release(lista)["tag_name"] == "v2.8.0"
 
 
 def test_pomija_tagi_bez_numeru_wersji():
@@ -142,7 +149,7 @@ def test_nowsza_wersja(monkeypatch):
     assert wynik["latest"] == "2.8.0"
     assert wynik["asset"] == "tunnelbox-2.8.0.zip"
     assert wynik["download"] == (
-        "https://github.com/Mysttic/Mysttic/releases/download/tunnelbox-v2.8.0/tunnelbox-2.8.0.zip")
+        "https://github.com/Mysttic/tunnelbox/releases/download/v2.8.0/tunnelbox-2.8.0.zip")
     assert wynik["page"] == updates.PAGE_URL
     assert wynik["ok"] is True
 
@@ -221,15 +228,15 @@ def test_zmiana_wersji_lokalnej_uniewaznia_cache(monkeypatch):
 
 # --- kontrakt z repozytorium wydań ---
 
-def test_panel_pyta_hub():
-    """Wydania dla wszystkich są na hubie Mysttic/Mysttic, obok wydań innych programów,
-    a odróżnia je prefiks tagu."""
-    assert updates.HUB_REPO == "Mysttic/Mysttic"
+def test_panel_pyta_wlasne_repozytorium():
+    """Od 3.1.0 wydania są w tym, publicznym repozytorium, z tagiem vX.Y.Z. Hub Mysttic/Mysttic
+    zostaje stroną projektu; pytają go już tylko panele 3.0.0."""
+    assert updates.RELEASES_REPO == "Mysttic/tunnelbox"
     assert updates.API_URL == (
-        "https://api.github.com/repos/Mysttic/Mysttic/releases?per_page=100")
-    assert updates.TAG_PREFIX == "tunnelbox-v"
+        "https://api.github.com/repos/Mysttic/tunnelbox/releases?per_page=100")
+    assert updates.TAG_PREFIX == "v"
     assert updates.PAGE_URL == "https://mysttic.github.io/Mysttic/tunnelbox/"
-    # lista + filtr po prefiksie, a nie /releases/latest (to wydanie dowolnego programu)
+    # lista + najwyższa wersja, a nie /releases/latest: ta sama reguła co szkice i wstępne
     assert "/releases/latest" not in updates.API_URL
 
 

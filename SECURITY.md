@@ -74,8 +74,9 @@ and the advisory is published with it, crediting you unless you prefer otherwise
   the request is refused.
 - **No traffic you did not ask for.** Apart from your VPN tunnels, the only outbound
   connection the panel makes by itself is the update check — at most once a day, to
-  `api.github.com`, asking for the list of releases behind the project page (the
-  `Mysttic/Mysttic` repository). It sends no user data (GitHub sees your IP address, as
+  `api.github.com`, asking for the list of this repository's releases (`Mysttic/tunnelbox`;
+  up to 3.0.0 it was `Mysttic/Mysttic`, the repository behind the project page). It sends
+  no user data (GitHub sees your IP address, as
   with any web request). Turn it off in **⚙ Settings → Check for updates**, and the panel
   connects to nothing but your VPNs. Downloads happen only when you start them: the
   **Update** button on Windows fetches the release package from GitHub, and only from that
