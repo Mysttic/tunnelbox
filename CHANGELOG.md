@@ -12,8 +12,10 @@ file — the release workflow pulls it into the GitHub release notes automatical
 ### Changed
 - **The Docker Hub image has a new home.** Releases go to
   [`programistticsolutions/tunnelbox`](https://hub.docker.com/r/programistticsolutions/tunnelbox),
-  the project's account; `mysttic/tunnelbox` gets no newer versions. The registry install
-  (`docker-compose.yml`) pulls from GHCR and is not affected.
+  the project's account. The old repository, `mysttic/tunnelbox`, has been removed, so if
+  you pull the image from there, switch to the new name or to `ghcr.io/mysttic/tunnelbox`.
+  The package and the registry install (`docker-compose.yml` pulls from GHCR) are not
+  affected.
 
 ## [3.1.0] - 2026-11-26
 
