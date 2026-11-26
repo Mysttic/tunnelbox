@@ -5,7 +5,7 @@
 [![Release](https://img.shields.io/github/v/release/Mysttic/tunnelbox)](https://github.com/Mysttic/tunnelbox/releases/latest)
 [![CI](https://github.com/Mysttic/tunnelbox/actions/workflows/ci.yml/badge.svg)](https://github.com/Mysttic/tunnelbox/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Docker pulls](https://img.shields.io/docker/pulls/mysttic/tunnelbox)](https://hub.docker.com/r/mysttic/tunnelbox)
+[![Docker pulls](https://img.shields.io/docker/pulls/programistticsolutions/tunnelbox)](https://hub.docker.com/r/programistticsolutions/tunnelbox)
 
 Tunnelbox connects you to several Fortinet (FortiGate) SSL-VPN and IPsec VPNs at once,
 straight from your browser — the tunnels run inside a Docker container, so your own computer
@@ -69,7 +69,7 @@ docker compose up -d
   a new version is out, the panel's update bar shows these two commands — a release appears
   only once its image is in GHCR (`ghcr.io/mysttic/tunnelbox`, the one `docker-compose.yml`
   uses); the Docker Hub copy follows it and can lag behind if copying fails.
-- **Images:** `ghcr.io/mysttic/tunnelbox` (GHCR) and `mysttic/tunnelbox` (Docker Hub) for
+- **Images:** `ghcr.io/mysttic/tunnelbox` (GHCR) and `programistticsolutions/tunnelbox` (Docker Hub) for
   `linux/amd64`, `linux/arm64` and `linux/arm/v7`, tagged `latest`, `X.Y.Z` and `X.Y`. To pin
   a version, change `:latest` in `docker-compose.yml`.
 - **On Windows** this path runs no `start.bat`, so fast RDP connect and the one-click update
