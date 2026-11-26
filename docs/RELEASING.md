@@ -140,8 +140,8 @@ image stays in GHCR only — the run stays green. If the token expires, `dockerh
 opens a `release-failed` issue, but the release itself is already out.
 
 The images go to the project's Docker Hub account, `programistticsolutions`. Up to 3.1.0
-they went to the author's private account, `mysttic/tunnelbox`, which gets no newer
-versions.
+they went to `mysttic/tunnelbox` on the author's private account; that repository was
+removed on 2026-11-26.
 
 1. Signed in to Docker Hub as `programistticsolutions`, create the repository
    `programistticsolutions/tunnelbox` (public).
