@@ -539,7 +539,7 @@ def test_docker_hub_tylko_z_sekretami():
     hub = job(WORKFLOW, "dockerhub")
     assert "DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}" in hub
     assert "DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}" in hub
-    assert "${{ vars.DOCKERHUB_REPOSITORY || 'mysttic/tunnelbox' }}" in hub
+    assert "${{ vars.DOCKERHUB_REPOSITORY || 'programistticsolutions/tunnelbox' }}" in hub
     # bez przebudowy — ten sam manifest co w GHCR
     assert 'docker buildx imagetools create "$@" "$GHCR_IMAGE:$VERSION"' in hub
     assert "docker/build-push-action" not in hub

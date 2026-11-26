@@ -19,7 +19,7 @@ jobs, in this order:
    release is the update channel installed panels read, so it must not appear before the
    image the registry install is then told to pull.
 4. **`dockerhub`** — when configured, copies the same tags from GHCR to Docker Hub
-   (`mysttic/tunnelbox`) without rebuilding and syncs the description from
+   (`programistticsolutions/tunnelbox`) without rebuilding and syncs the description from
    [`README.md`](../README.md). Nothing waits for it, so a Docker Hub problem never holds
    the release back.
 5. **`site`**: the bridge for 3.0.0 panels, which look only at the hub repository
@@ -49,7 +49,8 @@ Users install Tunnelbox in one of two ways:
    differ from the previous one — otherwise the release is skipped). This is the step
    that is easiest to forget.
 2. **Add a section to [`CHANGELOG.md`](../CHANGELOG.md)** for that number
-   (`## [X.Y.Z] - YYYY-MM-DD` plus Added/Changed/Fixed). The release notes are
+   (`## [X.Y.Z] - YYYY-MM-DD` plus Added/Changed/Fixed), or rename `## [Unreleased]` to
+   it when changes have been collected there. The release notes are
    [`packaging/release-notes-header.md`](../packaging/release-notes-header.md) followed by
    that section (under "Changes in this version"), and the changelog ships inside the
    package. If the section is missing, the workflow warns and the notes come out
@@ -138,13 +139,19 @@ Hub gets byte-for-byte the same image. Without these secrets it prints a warning
 image stays in GHCR only — the run stays green. If the token expires, `dockerhub` fails and
 opens a `release-failed` issue, but the release itself is already out.
 
-1. On Docker Hub, create the repository `mysttic/tunnelbox` (public).
-2. *Account settings → Personal access tokens* — a token with **Read, Write, Delete**
-   access (updating the repository description needs it).
+The images go to the project's Docker Hub account, `programistticsolutions`. Up to 3.1.0
+they went to the author's private account, `mysttic/tunnelbox`, which gets no newer
+versions.
+
+1. Signed in to Docker Hub as `programistticsolutions`, create the repository
+   `programistticsolutions/tunnelbox` (public).
+2. *Account settings → Personal access tokens* of that account: a token with **Read,
+   Write, Delete** access (updating the repository description needs it).
 3. In this repository: *Settings → Secrets and variables → Actions → New repository
-   secret* — `DOCKERHUB_USERNAME` (the Docker Hub user) and `DOCKERHUB_TOKEN` (the token).
+   secret*: `DOCKERHUB_USERNAME` (`programistticsolutions`) and `DOCKERHUB_TOKEN` (the
+   token).
 4. Optionally, on the **Variables** tab, `DOCKERHUB_REPOSITORY` — to push somewhere other
-   than the default `mysttic/tunnelbox`.
+   than the default `programistticsolutions/tunnelbox`.
 
 The full description on Docker Hub is `README.md` (relative links are turned into absolute
 ones); the short description is set in the workflow and must stay within 100 characters.

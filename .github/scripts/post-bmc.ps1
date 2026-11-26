@@ -61,7 +61,7 @@ $PostType = 'Post BMC'
 $Project = 'Tunnelbox'
 $Category = 'Tunnelbox'
 # Skąd pobrać Tunnelboxa: Docker Hub jest jego sklepem, a strona projektu daje paczkę ZIP i opis instalacji
-$DockerHubUrl = 'https://hub.docker.com/r/mysttic/tunnelbox'
+$DockerHubUrl = 'https://hub.docker.com/r/programistticsolutions/tunnelbox'
 $PageUrl = 'https://mysttic.github.io/Mysttic/tunnelbox/'
 # Zdanie, które stoi w każdym poście o Tunnelboxie (#16); w akapicie wstępu nie powtarza się
 $Disclaimer = 'Tunnelbox is an independent project, not affiliated with or endorsed by Fortinet.'
