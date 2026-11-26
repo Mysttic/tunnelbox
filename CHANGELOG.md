@@ -7,6 +7,27 @@ Every notable change to **Tunnelbox** (formerly FortiVPN 2). The format follows
 When releasing a new version, **add a section here** for the number in the `VERSION`
 file — the release workflow pulls it into the GitHub release notes automatically.
 
+## [3.1.0] - 2026-11-26
+
+Updates now come straight from Tunnelbox's own releases on GitHub. Panels of 3.0.0 still
+look in the old place, so this version waits for them there and moves them over.
+
+### Changed
+- **Updates come from Tunnelbox's own releases.** The panel
+  ([`app/updates.py`](app/updates.py)) and the Windows update helper look for releases
+  tagged `vX.Y.Z` with the file `tunnelbox-X.Y.Z.zip` in this repository, and the helper
+  accepts downloads only from `https://github.com/Mysttic/tunnelbox/releases/download/`.
+  Up to 3.0.0 both read `Mysttic/Mysttic`, the repository behind the project page. 3.1.0 is
+  copied there one last time and stays there, so a 3.0.0 panel offers it as usual and, once
+  updated, reads the new channel. The project page stays where it was.
+- **The newest version wins.** The panel takes the highest version number among the
+  releases, not the first one GitHub lists, now that the repository keeps every release.
+
+### Added
+- **A Buy Me a Coffee draft after every release.** The release workflow adds the post to
+  the author's Notion calendar (job `post-bmc`, issue #16). A Notion problem ends in a
+  warning and never fails the release; see [`docs/RELEASING.md`](docs/RELEASING.md).
+
 ## [3.0.0] — 2026-10-18
 
 ### Changed

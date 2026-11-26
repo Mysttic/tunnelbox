@@ -15,29 +15,31 @@ jobs, in this order:
    (`tunnelbox-image-X.Y.Z.tar.gz`), the compose file, the start-up scripts, the
    documentation in both languages, `CHANGELOG.md`, `LICENSE`, `THIRD_PARTY.md` and
    `THIRD_PARTY_VERSIONS.txt` (the exact component versions, read from the image) — and
-   creates the **GitHub Release** `vX.Y.Z` in this repository with the ZIP attached. Job
-   `site` copies it to the download page, which is the update channel, so it must not
-   appear before the image the registry install is then told to pull.
+   creates the **GitHub Release** `vX.Y.Z` in this repository with the ZIP attached. That
+   release is the update channel installed panels read, so it must not appear before the
+   image the registry install is then told to pull.
 4. **`dockerhub`** — when configured, copies the same tags from GHCR to Docker Hub
    (`mysttic/tunnelbox`) without rebuilding and syncs the description from
    [`README.md`](../README.md). Nothing waits for it, so a Docker Hub problem never holds
    the release back.
-5. **`site`**: copies the ZIP to the download page, the hub repository
-   [`Mysttic/Mysttic`](https://github.com/Mysttic/Mysttic), as the release
-   `tunnelbox-vX.Y.Z`. That copy is what the project page offers for download and what
-   installed panels look for, see
-   [The download page and the update channel](#the-download-page-and-the-update-channel-job-site).
-6. **`report-failure`** — when any of the jobs above fails or runs out of time, opens an
-   issue labelled `release-failed` (or comments on the open one).
+5. **`site`**: the bridge for 3.0.0 panels, which look only at the hub repository
+   [`Mysttic/Mysttic`](https://github.com/Mysttic/Mysttic): copies the ZIP there as the
+   release `tunnelbox-vX.Y.Z`. It runs for 3.1.0 and is removed after it, see
+   [The update channel and the bridge on the hub](#the-update-channel-and-the-bridge-on-the-hub-job-site).
+6. **`post-bmc`**: adds the draft of the Buy Me a Coffee post to the Notion calendar, see
+   [The Buy Me a Coffee post](#the-buy-me-a-coffee-post-job-post-bmc). A Notion problem
+   ends in a warning and never holds the release back.
+7. **`report-failure`**: when any of the jobs above but `post-bmc` fails or runs out of
+   time, opens an issue labelled `release-failed` (or comments on the open one).
 
 The workflow grants no permissions at the top level (`permissions: {}`); each job asks only
 for what it needs.
 
 Users install Tunnelbox in one of two ways:
 
-- **the ZIP package** from the [project page](https://mysttic.github.io/Mysttic/tunnelbox/):
-  unpack, run `start.bat`, which loads the image locally (`docker load`); nothing is pulled
-  from a registry;
+- **the ZIP package** from the [project page](https://mysttic.github.io/Mysttic/tunnelbox/),
+  which links to this repository's releases: unpack, run `start.bat`, which loads the image
+  locally (`docker load`); nothing is pulled from a registry;
 - **the registry image** with the root [`docker-compose.yml`](../docker-compose.yml) —
   `docker compose up -d`, updated with `docker compose pull`, then `docker compose up -d`.
 
@@ -47,18 +49,20 @@ Users install Tunnelbox in one of two ways:
    differ from the previous one — otherwise the release is skipped). This is the step
    that is easiest to forget.
 2. **Add a section to [`CHANGELOG.md`](../CHANGELOG.md)** for that number
-   (`## [X.Y.Z] — YYYY-MM-DD` plus Added/Changed/Fixed). The release notes are
+   (`## [X.Y.Z] - YYYY-MM-DD` plus Added/Changed/Fixed). The release notes are
    [`packaging/release-notes-header.md`](../packaging/release-notes-header.md) followed by
    that section (under "Changes in this version"), and the changelog ships inside the
    package. If the section is missing, the workflow warns and the notes come out
-   incomplete.
+   incomplete. The same section becomes the Buy Me a Coffee post, so write its first
+   sentence and the bold titles of the entries in plain English, without code.
 3. Open a `develop` → `main` pull request. **CI**
    ([.github/workflows/ci.yml](../.github/workflows/ci.yml)) runs the backend and e2e tests
    and checks the commit messages — everything has to be green.
 4. Merge the pull request. The **Release** workflow builds and publishes the release.
-5. Done — no manual steps on GitHub. The registry image comes first, and it takes a while:
+5. Done, no manual steps on GitHub. The registry image comes first, and it takes a while:
    `linux/arm/v7` and `linux/arm64` are built under emulation (up to about an hour on a
-   cold cache). The release with the ZIP follows right after it.
+   cold cache). The release with the ZIP follows right after it, then the draft of the
+   Buy Me a Coffee post in the Notion calendar, which you publish by hand.
 
 > To ship a fix with no code change, bump `VERSION` alone and merge.
 
@@ -68,9 +72,11 @@ After releasing, it is worth checking that:
 - the image tags exist for all three platforms —
   `docker buildx imagetools inspect ghcr.io/mysttic/tunnelbox:X.Y.Z` (and the same on
   Docker Hub, if configured);
-- the release `tunnelbox-vX.Y.Z` with `tunnelbox-X.Y.Z.zip` stands on `Mysttic/Mysttic`,
-  and no older `tunnelbox-v*` release is left there;
-- the [project page](https://mysttic.github.io/Mysttic/tunnelbox/) shows the new number.
+- the Notion calendar "🎸 Zadania" has the entry `Post BMC: Tunnelbox X.Y.Z` (or the
+  summary of the `post-bmc` job says why not);
+- while job `site` exists (3.1.0): the release `tunnelbox-vX.Y.Z` with
+  `tunnelbox-X.Y.Z.zip` stands on `Mysttic/Mysttic`, and no older `tunnelbox-v*` release is
+  left there.
 
 ### When a job fails
 
@@ -85,7 +91,7 @@ failed run — the job gets the same inputs it had the first time, and the jobs 
 waiting for it (e.g. `release` after a failed `images`) run with it. Every publishing job
 checks, at the moment it runs, whether its version is still the newest one: only then do
 `latest` and `X.Y` move, does the GitHub release become *Latest*, does the copy on the
-download page get replaced and does the Docker Hub description change. Re-running an older release's
+hub get replaced and does the Docker Hub description change. Re-running an older release's
 failed run therefore never sends anyone back to that version.
 
 The tag `vX.Y.Z` is created only when `release` succeeds:
@@ -144,31 +150,27 @@ The full description on Docker Hub is `README.md` (relative links are turned int
 ones); the short description is set in the workflow and must stay within 100 characters.
 Docker Hub limits the full description to 25,000 bytes.
 
-## The download page and the update channel (job `site`)
+## The update channel and the bridge on the hub (job `site`)
 
-Like the author's other programs, Tunnelbox is published through the hub repository
-[`Mysttic/Mysttic`](https://github.com/Mysttic/Mysttic), which is also the download site
-(GitHub Pages, [mysttic.github.io/Mysttic](https://mysttic.github.io/Mysttic/)). It keeps
-the releases of several programs side by side, told apart by the tag prefix. Job `site`:
-
-1. downloads exactly `tunnelbox-X.Y.Z.zip` from this repository's release `vX.Y.Z`;
-2. creates the hub release `tunnelbox-vX.Y.Z` with that file, unchanged (titled
-   `Tunnelbox X.Y.Z`, with the project page's address in the notes), **before** deleting
-   the older `tunnelbox-v*` releases, so the page is never empty. The deletion filters on
-   `^tunnelbox-v`, so it never touches releases of the other programs.
+Tunnelbox has its own distribution: the registry images (Docker Hub is its store, GHCR
+serves the same image to the root `docker-compose.yml`) and this repository's releases,
+which carry the ZIP package. The hub repository
+[`Mysttic/Mysttic`](https://github.com/Mysttic/Mysttic) (GitHub Pages,
+[mysttic.github.io/Mysttic](https://mysttic.github.io/Mysttic/)) stays the project page, as
+it does for the author's other programs, but from 3.1.0 on it carries no Tunnelbox releases.
 
 Once a day the panel ([`app/updates.py`](../app/updates.py)) asks
-`https://api.github.com/repos/Mysttic/Mysttic/releases` whether a newer version exists, and
-on Windows the update helper
+`https://api.github.com/repos/Mysttic/tunnelbox/releases` whether a newer version exists and
+takes the highest version, not the first release in the list. On Windows the update helper
 ([`packaging/update-launcher.ps1`](../packaging/update-launcher.ps1)) receives only a
 version number from the page and resolves the download address there itself. The contract:
 
 | What | Value | Read by |
 |---|---|---|
-| repository | `Mysttic/Mysttic` | panel, update helper, project page |
-| release tag | `tunnelbox-vX.Y.Z` (drafts and pre-releases skipped) | panel, update helper, project page |
-| package file | `tunnelbox-X.Y.Z.zip` | panel, update helper, project page |
-| download origin | `https://github.com/Mysttic/Mysttic/releases/download/` | update helper (refuses anything else) |
+| repository | `Mysttic/tunnelbox` | panel, update helper |
+| release tag | `vX.Y.Z` (drafts and pre-releases skipped) | panel, update helper |
+| package file | `tunnelbox-X.Y.Z.zip` | panel, update helper |
+| download origin | `https://github.com/Mysttic/tunnelbox/releases/download/` | update helper (refuses anything else) |
 | folder inside the ZIP | `tunnelbox-X.Y.Z/`, with `start.ps1` at its top | update helper (runs it after unpacking) |
 | confirmation | `http://127.0.0.1:25263/api/vault` answers `"version": "X.Y.Z"` | update helper (waits for it) |
 
@@ -179,44 +181,117 @@ reads the new scheme and change the scheme after that. The consistency of the th
 `test_kontrakt_wydania_jest_ten_sam_w_trzech_miejscach` in
 [`tests/test_packaging.py`](../tests/test_packaging.py).
 
+### The bridge for 3.0.0 panels
+
+Tunnelbox 3.0.0 reads the hub: releases tagged `tunnelbox-vX.Y.Z` in `Mysttic/Mysttic`, and
+its update helper downloads only from `https://github.com/Mysttic/Mysttic/releases/download/`.
+3.1.0 is the version that reads the new channel, so it has to reach those panels the old
+way. Job `site`:
+
+1. downloads exactly `tunnelbox-X.Y.Z.zip` from this repository's release `vX.Y.Z`;
+2. creates the hub release `tunnelbox-vX.Y.Z` with that file, unchanged (titled
+   `Tunnelbox X.Y.Z`, with the project page's address in the notes), **before** deleting
+   the older `tunnelbox-v*` releases. The deletion filters on `^tunnelbox-v`, so it never
+   touches releases of the other programs.
+
+A 3.0.0 panel then offers 3.1.0, installs it with its own helper, and the new `start.ps1`
+replaces the helper in `%LOCALAPPDATA%\Tunnelbox` with the one that reads this repository
+(registry installs pull the image and read this repository the same way).
+
+After 3.1.0 is out and an update from 3.0.0 has been checked on Windows:
+
+- remove job `site` from `release.yml`, together with its tests in
+  `tests/test_packaging.py` (`test_most_dla_paneli_3_0_0_na_hubie`,
+  `test_bez_kopii_na_stronie_wydanie_pada` and the `site` entries of the others) and the
+  `HUB_TOKEN` secret;
+- leave `tunnelbox-v3.1.0` on the hub for good, like `mysttrainings-v1.6.0`: 3.0.0 panels
+  that update later go through it. The prefix `tunnelbox-v` stays reserved, so nothing else
+  is published under it.
+
 FortiVPN 2 (2.9.x) read the same hub under the prefix `fortivpn2-v`. Tunnelbox does not
 publish anything there, so a FortiVPN 2 panel never offers Tunnelbox: people move by
 installing it from scratch and importing an export (README, "Coming from FortiVPN 2").
 
 ### The project page (in `Mysttic/Mysttic`)
 
-The download pages are maintained in the hub repository, not here:
+The project pages are maintained in the hub repository, not here:
 
-- **`tunnelbox/index.html`**: the download page; the shared `assets/releases.js` fills its
-  button from the hub's releases:
-
-  ```js
-  initDownloads({
-    tagPrefix: 'tunnelbox-v',
-    files: [{ id: 'zip', match: /^tunnelbox-.*\.zip$/ }]
-  });
-  ```
-
+- **`tunnelbox/index.html`**: the project page; its buttons lead to Docker Hub and to the
+  latest release of this repository;
 - **`fortivpn2/index.html`**: only a redirect to `../tunnelbox/`, for old bookmarks and the
   "What's new" link of FortiVPN 2 panels;
 - a row in the hub's `RELEASES.md` (project, page, prefix) and a card on its `index.html`.
 
-### The `HUB_TOKEN` secret (one-off setup)
+### The `HUB_TOKEN` secret (until the bridge is out)
 
 The default `GITHUB_TOKEN` only reaches the repository the workflow runs in, so copying to
 the hub needs a credential of its own:
 
-1. <https://github.com/settings/personal-access-tokens> — a **fine-grained** token.
+1. <https://github.com/settings/personal-access-tokens>, a **fine-grained** token.
 2. Owner `Mysttic`, access limited to the `Mysttic/Mysttic` repository.
 3. Permission **Contents: Read and write**.
 4. In this repository: *Settings → Secrets and variables → Actions → New repository
    secret*, named `HUB_TOKEN`.
 
-A missing `HUB_TOKEN` is a hard error: without the copy nobody can download the release and
-no panel sees it, so the job fails and `report-failure` opens an issue. The token has an expiry date; when it runs out, the job
-ends with a readable error, while the release in this repository and the registry images are
-untouched. The fix: renew the token and **Re-run failed jobs** (see
+A missing `HUB_TOKEN` is a hard error: without the copy no 3.0.0 panel sees the release, so
+the job fails and `report-failure` opens an issue. The token has an expiry date; when it
+runs out, the job ends with a readable error, while the release in this repository and the
+registry images are untouched. The fix: renew the token and **Re-run failed jobs** (see
 [When a job fails](#when-a-job-fails)).
+
+## The Buy Me a Coffee post (job `post-bmc`)
+
+Buy Me a Coffee has no API for posts, so the release prepares a draft and the author
+publishes it on [buymeacoffee.com/mysttic](https://buymeacoffee.com/mysttic) (issue #16).
+Once the release is published, the `post-bmc` job of `release.yml` runs
+[`post-bmc.yml`](../.github/workflows/post-bmc.yml), and
+[`.github/scripts/post-bmc.ps1`](../.github/scripts/post-bmc.ps1) adds one entry to the
+Notion calendar "🎸 Zadania". The script is copied from Chatt (which took it from
+MystticRock), so a fix in one of them carries over with few changes.
+
+| Property | Value |
+|---|---|
+| Zadanie | `Post BMC: Tunnelbox <version>` |
+| Typ | `Post BMC` |
+| Status | `Planowany` |
+| Termin | tomorrow in Poland at the earliest, and at least 3 days after the latest Termin among the `Post BMC` entries of every project |
+| Link | the GitHub Release, which is also how a second run finds the entry |
+| Description | the kind of version, the visibility in Buy Me a Coffee and the category `Tunnelbox` |
+
+The visibility follows the number: X.0.0 is Public, X.Y.0 goes to the members with Release
+Supporter and All Updates Supporter, X.Y.Z only to All Updates Supporter. To publish on
+another day, move the entry in the calendar.
+
+The entry starts with the publishing instructions, which are not for copying: the
+visibility, the category, the picture and what was left out of the text. "Treść do
+skopiowania" holds the post, and a toggle holds the whole section of the version. The post
+comes from that section of `CHANGELOG.md`:
+
+- the title is `Tunnelbox <version>: ` and the first sentence of the section's summary up
+  to its first colon, or the first bold title of an entry when that sentence was left out
+  or the section has no summary;
+- then the summary, "What changed" with the bold titles of the entries, where to get
+  Tunnelbox (the image on Docker Hub, its store, and the project page with the package),
+  the sentence "Tunnelbox is an independent project, not affiliated with or endorsed by
+  Fortinet." and a thank you;
+- issue numbers in parentheses are dropped. A sentence or a title with code, a file name or
+  an issue number stays out of the post, and the instructions list it for rewording.
+
+Every entry of the section goes into "What changed", the ones for the maintainer too: pick
+what readers care about when you copy the post. LinkedIn gets the published post copied by
+hand; nothing here prepares it.
+
+- One entry per release: a second run for the same version finds it by Link or title and
+  adds nothing. Prereleases and drafts get no entry.
+- A Notion error or missing secrets end the job with a warning and a sentence in its
+  summary, the release stays green and `report-failure` opens no issue. The entry then
+  comes from *Actions, Post BMC, Run workflow* on `main` with the version number; "Tylko
+  podgląd" prints the entry and its date and writes nothing.
+- Secrets: `NOTION_TOKEN` (a Notion integration with Read content and Insert content,
+  connected only to "🎸 Zadania") and `NOTION_CALENDAR_DATA_SOURCE_ID` (the id of that
+  database's data source).
+- The script has a test with a stand-in for the Notion API on localhost, with no Notion and
+  no GitHub: `powershell -File .github\scripts\post-bmc-test.ps1`.
 
 ## Documentation and languages
 

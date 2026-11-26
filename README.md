@@ -79,8 +79,9 @@ docker compose up -d
 ### 2. Offline ZIP package
 
 Download `tunnelbox-X.Y.Z.zip` from the
-[project page](https://mysttic.github.io/Mysttic/tunnelbox/) and unpack it into any
-folder. The package carries the image (`tunnelbox-image-X.Y.Z.tar.gz`): the start script
+[project page](https://mysttic.github.io/Mysttic/tunnelbox/) (it is attached to every
+[release](https://github.com/Mysttic/tunnelbox/releases/latest) of this repository) and unpack
+it into any folder. The package carries the image (`tunnelbox-image-X.Y.Z.tar.gz`): the start script
 loads it locally (`docker load`), so nothing is built and nothing is pulled from a registry.
 
 - **Windows** — double-click `start.bat`. It also sets up fast RDP connect and the one-click
@@ -188,14 +189,15 @@ verified with a real PPP tunnel, so 3.0.0 keeps `privileged`. It still listens o
   under `TERMSRV/<address>` **without the port** — on a shared `localhost` the saved
   passwords would overwrite each other. To change the pool, edit both compose files
   (`docker-compose.yml`, `packaging/docker-compose.yml`) **and** `app/connections.py`.
-- **Updates**: once a day the panel asks the
-  [project page](https://mysttic.github.io/Mysttic/tunnelbox/) whether a newer version
-  exists (its releases live in the `Mysttic/Mysttic` repository, next to other programs'
-  downloads) and shows a bar above the connection list: with the ZIP package on Windows the
+- **Updates**: once a day the panel asks this repository's
+  [releases](https://github.com/Mysttic/tunnelbox/releases) whether a newer version exists
+  and shows a bar above the connection list: with the ZIP package on Windows the
   "⬆️ Update" button downloads and installs it without leaving the browser, with the
   registry install the bar shows the `docker compose pull` command. The check sends none of
   your data and can be turned off in ⚙ Settings. The details and the contract (tag
-  `tunnelbox-vX.Y.Z`, file `tunnelbox-X.Y.Z.zip`) are in [`app/updates.py`](app/updates.py).
+  `vX.Y.Z`, file `tunnelbox-X.Y.Z.zip`) are in [`app/updates.py`](app/updates.py). Up to
+  3.0.0 the panel asked the repository behind the project page, `Mysttic/Mysttic`; 3.1.0 is
+  copied there too, so those panels update to it and move over.
 - **Code changes** — after every change just run `./start.sh` / `start.bat` again; it
   rebuilds the image with
   `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.

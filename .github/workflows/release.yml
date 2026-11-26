@@ -12,20 +12,22 @@ name: Release
 #   release        : obraz linux/amd64 i samowystarczalny pakiet tunnelbox-X.Y.Z.zip
 #                    (obraz z docker save, wczytywany lokalnie przez start.bat / start.sh
 #                    poleceniem docker load, bez rejestru i logowania), a z nimi release
-#                    vX.Y.Z w tym repozytorium. Startuje dopiero po images, bo kopia
-#                    wydania na stronie (job site) mówi zainstalowanym panelom o nowej
-#                    wersji: nie może się pojawić wcześniej niż obraz, który instalacja
-#                    z rejestru ma wtedy pobrać.
+#                    vX.Y.Z w tym repozytorium. O to wydanie pytają panel (app/updates.py)
+#                    i instalator (packaging/update-launcher.ps1). Startuje dopiero po images,
+#                    bo wydanie mówi zainstalowanym panelom o nowej wersji: nie może się
+#                    pojawić wcześniej niż obraz, który instalacja z rejestru ma wtedy pobrać.
 #   dockerhub      : kopia tych samych tagów z GHCR na Docker Hub (bez ponownego budowania)
 #                    i opis repozytorium z README; tylko gdy są sekrety DOCKERHUB_*.
 #                    Awaria Docker Hub (np. wygasły token) nie wstrzymuje wydania.
-#   site           : kopia paczki na stronie z pobieraniem, w hubie Mysttic/Mysttic (tag
-#                    tunnelbox-vX.Y.Z, plik tunnelbox-X.Y.Z.zip). Stamtąd paczkę daje do
-#                    pobrania strona projektu i tylko tam o nowe wersje pytają panel
-#                    (app/updates.py) i instalator (packaging/update-launcher.ps1).
-#   report-failure : gdy któryś z powyższych jobów padnie albo przekroczy limit czasu,
-#                    zakłada zgłoszenie „Release vX.Y.Z failed" z etykietą release-failed
-#                    albo dopisuje kolejny przebieg do zgłoszenia, które jest już otwarte.
+#   site           : most dla paneli 3.0.0, które pytają tylko hub Mysttic/Mysttic: kopia
+#                    paczki pod tagiem tunnelbox-vX.Y.Z. Zostaje do wydania 3.1.0, którego
+#                    kopia stoi na hubie na stałe (docs/RELEASING.md).
+#   post-bmc       : szkic posta Buy Me a Coffee w kalendarzu Notion (post-bmc.yml). Błąd
+#                    Notion nie wstrzymuje wydania i nie zakłada zgłoszenia.
+#   report-failure : gdy któryś z jobów wydania (wszystkie poza post-bmc) padnie albo
+#                    przekroczy limit czasu, zakłada zgłoszenie „Release vX.Y.Z failed"
+#                    z etykietą release-failed albo dopisuje kolejny przebieg do zgłoszenia,
+#                    które jest już otwarte.
 #
 # Strażnik wersji warunkuje wszystkie kolejne joby, więc push do main bez zmiany VERSION
 # kończy przebieg po kilku sekundach, bez budowania obrazu — o ile tag vX.Y.Z już istnieje.
@@ -422,16 +424,16 @@ jobs:
           short-description: "Several Fortinet SSL-VPN / IPsec tunnels at once, in one Docker container, driven from your browser."
           enable-url-completion: true
 
-  # Kopia paczki na stronie z pobieraniem (hub Mysttic/Mysttic, GitHub Pages). Stamtąd
-  # strona projektu daje paczkę do pobrania i tam o nowe wersje pytają zainstalowane
-  # panele (app/updates.py) i instalator (packaging/update-launcher.ps1):
-  # tag tunnelbox-vX.Y.Z, plik tunnelbox-X.Y.Z.zip, a w nim folder tunnelbox-X.Y.Z ze
-  # start.ps1 (instalator przyjmuje tylko pliki spod github.com/Mysttic/Mysttic/releases/
-  # download/). Hub trzyma wydania kilku programów, więc job rusza wyłącznie wydania
-  # z prefiksem tunnelbox-v. Zmiana tego kontraktu psuje aktualizację osobom, które mają
-  # już program, a dowiedzą się o tym dopiero wtedy, gdy przestanie działać.
+  # Most dla paneli 3.0.0. Pytają one wyłącznie hub Mysttic/Mysttic (repozytorium strony
+  # projektu): tag tunnelbox-vX.Y.Z, plik tunnelbox-X.Y.Z.zip, a w nim folder tunnelbox-X.Y.Z
+  # ze start.ps1 (ich instalator przyjmuje tylko pliki spod github.com/Mysttic/Mysttic/
+  # releases/download/). Od 3.1.0 panel i instalator pytają wydania tego repozytorium, więc
+  # kopia 3.1.0 na hubie jest ostatnia: po tym wydaniu job znika razem z sekretem HUB_TOKEN,
+  # a kopia zostaje, żeby panele 3.0.0 przez nią przeszły na nowy kanał (docs/RELEASING.md).
+  # Hub trzyma wydania kilku programów, więc job rusza wyłącznie wydania z prefiksem
+  # tunnelbox-v.
   site:
-    name: Kopia na stronie z pobieraniem
+    name: Kopia na hubie (most dla paneli 3.0.0)
     needs: [version, release]
     if: needs.version.outputs.publishing == 'true'
     runs-on: ubuntu-latest
@@ -479,7 +481,7 @@ jobs:
             exit 0
           fi
           if [ -z "${HUB_TOKEN:-}" ]; then
-            echo "::error::Brak sekretu HUB_TOKEN. Wydanie $TAG powstało, ale bez kopii na stronie nikt go nie pobierze ani nie zobaczy w panelu."
+            echo "::error::Brak sekretu HUB_TOKEN. Wydanie $TAG powstało, ale bez kopii na hubie panele 3.0.0 go nie zobaczą."
             echo "::error::Potrzebny token osobisty z uprawnieniem Contents: read and write do $HUB."
             exit 1
           fi
@@ -541,6 +543,25 @@ jobs:
                 gh release delete "$old" --repo "$HUB" --cleanup-tag --yes
               done
           echo "$HUB_TAG stoi na stronie: $SITE" >> "$GITHUB_STEP_SUMMARY"
+
+  # Szkic posta Buy Me a Coffee o tym wydaniu jako wpis w kalendarzu Notion „🎸 Zadania”
+  # (Mysttic/tunnelbox#16). Osobny workflow, a nie zdarzenie release: published, bo wydanie
+  # tworzy GITHUB_TOKEN, a jego zdarzenia nie uruchamiają innych workflow; ten sam workflow
+  # da się uruchomić ręcznie dla istniejącego wydania. Błąd Notion kończy się ostrzeżeniem,
+  # wydanie zostaje zielone, a report-failure na ten job nie czeka. Workflow dostaje tylko
+  # dwa sekrety Notion.
+  post-bmc:
+    name: Szkic posta BMC w Notion
+    needs: [version, release]
+    if: needs.version.outputs.publishing == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/post-bmc.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+    secrets:
+      NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+      NOTION_CALENDAR_DATA_SOURCE_ID: ${{ secrets.NOTION_CALENDAR_DATA_SOURCE_ID }}
 
   # Wydanie, które padło w połowie (np. obraz jest w GHCR, a ZIP-a nie ma), ma być
   # widać w Issues, a nie tylko na czerwonym przebiegu w zakładce Actions. Kolejne nieudane

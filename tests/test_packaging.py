@@ -13,7 +13,8 @@ import pytest
 from connections import LOCAL_PORT_MAX, LOCAL_PORT_MIN, local_host
 
 ROOT = pathlib.Path(__file__).parent.parent
-PS1_FILES = sorted(ROOT.glob("*.ps1")) + sorted((ROOT / "packaging").glob("*.ps1"))
+PS1_FILES = (sorted(ROOT.glob("*.ps1")) + sorted((ROOT / "packaging").glob("*.ps1"))
+             + sorted((ROOT / ".github" / "scripts").glob("*.ps1")))
 
 
 def tekst(sciezka: str) -> str:
@@ -66,10 +67,12 @@ def porty(compose: str) -> list[str]:
 
 WORKFLOW = tekst(".github/workflows/release.yml")
 CI = tekst(".github/workflows/ci.yml")
+POST_BMC = tekst(".github/workflows/post-bmc.yml")
 LAUNCHER = tekst("packaging/update-launcher.ps1")
 
-# Kanał aktualizacji: wydania na hubie Mysttic/Mysttic (strona z pobieraniem). Hub trzyma
-# wydania kilku programów, ten ma prefiks tunnelbox-v.
+# Kanał aktualizacji od 3.1.0: wydania tego repozytorium, tag v<wersja>. Hub Mysttic/Mysttic
+# (prefiks tunnelbox-v) czytają już tylko panele 3.0.0: job site kopiuje tam wydanie jako most.
+REPO = "Mysttic/tunnelbox"
 HUB = "Mysttic/Mysttic"
 PAGE = "https://mysttic.github.io/Mysttic/tunnelbox/"
 
@@ -136,21 +139,21 @@ def test_instalator_nie_ufa_danym_ze_strony():
     assert "StartsWith($DownloadPrefix" in text, "brak sprawdzenia pochodzenia pliku"
 
 
-def test_instalator_przyjmuje_pliki_tylko_z_huba():
+def test_instalator_przyjmuje_pliki_tylko_z_wydan_repozytorium():
     """Pochodzenie pliku sprawdza prefiks strony wydań tego samego repozytorium, które helper
     odpytuje. GitHub nie rozróżnia wielkości liter w nazwie właściciela i repozytorium, a API
-    zwraca postać kanoniczną: porównanie z rozróżnianiem wielkości liter odrzuciłoby każdą
-    paczkę, gdyby zapis w skrypcie i w API się rozjechały, i przycisk „Zaktualizuj"
-    przestałby działać wszystkim naraz."""
+    zwraca postać kanoniczną (Mysttic/tunnelbox): porównanie z rozróżnianiem wielkości liter
+    odrzuciłoby każdą paczkę, gdyby zapis w skrypcie i w API się rozjechały, i przycisk
+    „Zaktualizuj" przestałby działać wszystkim naraz."""
     assert (
         "$downloadUrl.StartsWith($DownloadPrefix, [StringComparison]::OrdinalIgnoreCase)" in LAUNCHER
     )
-    api = re.search(r"^\$HubApi = 'https://api\.github\.com/repos/([^/']+/[^/']+)/releases", LAUNCHER, re.M)
+    api = re.search(r"^\$ReleasesApi = 'https://api\.github\.com/repos/([^/']+/[^/']+)/releases", LAUNCHER, re.M)
     pobieranie = re.search(
         r"^\$DownloadPrefix = 'https://github\.com/([^/']+/[^/']+)/releases/download/'$", LAUNCHER, re.M
     )
     assert api and pobieranie, "brak adresu API albo prefiksu pobierania"
-    assert api.group(1) == pobieranie.group(1) == HUB
+    assert api.group(1) == pobieranie.group(1) == REPO
 
 
 def test_start_nie_cofa_wersji():
@@ -172,42 +175,34 @@ def test_start_dziala_pod_helperem_aktualizacji():
 
 
 def test_kontrakt_wydania_jest_ten_sam_w_trzech_miejscach():
-    """Repozytorium, prefiks tagu, nazwa pliku i folder w paczce są czytane przez trzy
-    programy: workflow (kopiuje wydanie na stronę z pobieraniem), panel (app/updates.py)
-    i instalator (update-launcher.ps1). Zmiana w jednym miejscu bez pozostałych psuje
-    aktualizację osobom, które już mają program, a dowiedzą się o tym dopiero wtedy, gdy
-    przestanie działać.
+    """Repozytorium, tag, nazwa pliku i folder w paczce są czytane przez trzy programy:
+    workflow (tworzy wydanie), panel (app/updates.py) i instalator (update-launcher.ps1).
+    Zmiana w jednym miejscu bez pozostałych psuje aktualizację osobom, które już mają
+    program, a dowiedzą się o tym dopiero wtedy, gdy przestanie działać.
 
-    Kontrakt: wydania huba Mysttic/Mysttic, tag tunnelbox-v<wersja>, plik
+    Kontrakt: wydania repozytorium Mysttic/tunnelbox, tag v<wersja>, plik
     tunnelbox-<wersja>.zip, a w nim folder tunnelbox-<wersja>/ ze start.ps1.
     """
     panel = (ROOT / "app" / "updates.py").read_text(encoding="utf-8")
+    version = job(WORKFLOW, "version")
     release = job(WORKFLOW, "release")
-    site = job(WORKFLOW, "site")
 
-    # repozytorium z wydaniami: hub, na który job site kopiuje paczkę
-    assert f'HUB_REPO = "{HUB}"' in panel
-    assert f"api.github.com/repos/{HUB}/releases" in LAUNCHER
-    assert f"HUB: {HUB}" in site
-    assert 'gh release create "$HUB_TAG"' in site
-    assert '--repo "$HUB"' in site
+    # repozytorium z wydaniami: to, w którym job release je tworzy (akcja bez repository:)
+    assert f'RELEASES_REPO = "{REPO}"' in panel
+    assert f"api.github.com/repos/{REPO}/releases" in LAUNCHER
+    assert "uses: softprops/action-gh-release@" in release
+    assert "repository:" not in release
 
-    # tag na hubie: tunnelbox-v<wersja>
-    assert 'TAG_PREFIX = "tunnelbox-v"' in panel
-    assert "PROJECT: tunnelbox" in site
-    assert "HUB_TAG: tunnelbox-v${{ needs.version.outputs.version }}" in site
-    assert "$TagPrefix = 'tunnelbox-v'" in LAUNCHER
+    # tag: v<wersja>
+    assert 'echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"' in version
+    assert "tag_name: ${{ env.TAG }}" in release
+    assert 'TAG_PREFIX = "v"' in panel
+    assert "$TagPrefix = 'v'" in LAUNCHER
     assert '$tag = "$TagPrefix$version"' in LAUNCHER
 
-    # nazwa paczki: tunnelbox-<wersja>.zip, na stronę trafia bez zmian, prosto z wydania
-    # tego repozytorium
+    # nazwa paczki: tunnelbox-<wersja>.zip
     assert 'PKG="tunnelbox-${VERSION}"' in release
     assert "files: dist/tunnelbox-${{ env.VERSION }}.zip" in release
-    assert "tag_name: ${{ env.TAG }}" in release
-    assert "TAG: ${{ needs.version.outputs.tag }}" in site
-    assert 'gh release download "$TAG" --repo "$GITHUB_REPOSITORY"' in site
-    assert '--pattern "tunnelbox-$VERSION.zip"' in site
-    assert 'gh release create "$HUB_TAG" "copy/$PROJECT-$VERSION.zip"' in site
     assert r'ASSET_RE = re.compile(r"^tunnelbox-\d+\.\d+\.\d+\.zip$")' in panel
     assert '$assetName = "tunnelbox-$version.zip"' in LAUNCHER
 
@@ -217,16 +212,33 @@ def test_kontrakt_wydania_jest_ten_sam_w_trzech_miejscach():
     assert '$target = Join-Path $VersionsDir "tunnelbox-$version"' in LAUNCHER
     assert "$start = Join-Path $target 'start.ps1'" in LAUNCHER
 
-    # „Co nowego" w panelu, opis wydania na hubie i komunikaty instalatora: ta sama strona
+    # „Co nowego" w panelu i komunikaty instalatora: ta sama strona projektu
     assert f'PAGE_URL = "{PAGE}"' in panel
-    assert f"SITE: {PAGE}" in site
     assert f"$PageUrl = '{PAGE}'" in LAUNCHER
 
 
+def test_most_dla_paneli_3_0_0_na_hubie():
+    """Panele 3.0.0 pytają wyłącznie hub Mysttic/Mysttic: tag tunnelbox-v<wersja>, plik
+    tunnelbox-<wersja>.zip, pobranie tylko spod github.com/Mysttic/Mysttic/releases/download/.
+    Job site kopiuje tam paczkę z wydania tego repozytorium bez zmian, inaczej żaden z nich
+    nie dowie się o 3.1.0, która przenosi panel na wydania tego repozytorium. Po wydaniu
+    3.1.0 job site znika, a jej kopia zostaje na hubie (docs/RELEASING.md)."""
+    site = job(WORKFLOW, "site")
+    assert f"HUB: {HUB}" in site
+    assert "PROJECT: tunnelbox" in site
+    assert "HUB_TAG: tunnelbox-v${{ needs.version.outputs.version }}" in site
+    assert "TAG: ${{ needs.version.outputs.tag }}" in site
+    assert 'gh release download "$TAG" --repo "$GITHUB_REPOSITORY"' in site
+    assert '--pattern "tunnelbox-$VERSION.zip"' in site
+    assert 'gh release create "$HUB_TAG" "copy/$PROJECT-$VERSION.zip"' in site
+    assert '--repo "$HUB"' in site
+    assert f"SITE: {PAGE}" in site
+
+
 def test_bez_kopii_na_stronie_wydanie_pada():
-    """Bez kopii na hubie strona projektu nie da wydania do pobrania, a zainstalowane
-    panele się o nim nie dowiedzą. Brak HUB_TOKEN ma więc wywrócić job
-    (i założyć zgłoszenie), a nie przejść po cichu."""
+    """Bez kopii na hubie panele 3.0.0 nie dowiedzą się o wydaniu, które przenosi je na
+    nowy kanał. Brak HUB_TOKEN ma więc wywrócić job (i założyć zgłoszenie), a nie przejść
+    po cichu."""
     site = job(WORKFLOW, "site")
     assert re.search(r'if \[ -z "\$\{HUB_TOKEN:-\}" \]; then\n(?:[^\n]*\n){0,3}?\s*exit 1\n', site)
 
@@ -546,10 +558,10 @@ def test_docker_hub_tylko_z_sekretami():
 
 
 def test_wydanie_powstaje_po_obrazie_w_rejestrze():
-    """Kopia wydania na stronie jest kanałem aktualizacji: panel z rejestru, gdy ją zobaczy,
-    każe zrobić docker compose pull. Kopia opublikowana przed obrazem w GHCR (budowa
-    na trzy architektury trwa do godziny) kazałaby ściągnąć wersję, której jeszcze nie ma.
-    Dlatego release czeka na images, a site na release."""
+    """Wydanie w tym repozytorium (a dla paneli 3.0.0 jego kopia na hubie) jest kanałem
+    aktualizacji: panel z rejestru, gdy je zobaczy, każe zrobić docker compose pull. Wydanie
+    opublikowane przed obrazem w GHCR (budowa na trzy architektury trwa do godziny) kazałoby
+    ściągnąć wersję, której jeszcze nie ma. Dlatego release czeka na images, a site na release."""
     for nazwa, poprzedni in [("release", "images"), ("site", "release")]:
         needs = re.search(r"^    needs: \[([^\]]*)\]$", job(WORKFLOW, nazwa), re.M)
         assert needs and poprzedni in {n.strip() for n in needs.group(1).split(",")}, nazwa
@@ -599,11 +611,41 @@ def test_nieudane_wydanie_zaklada_zgloszenie():
     assert needs, "brak needs w report-failure"
     pilnowane = {nazwa.strip() for nazwa in needs.group(1).split(",")}
     assert {"version", "images", "release", "dockerhub", "site"} <= pilnowane
-    assert set(joby(WORKFLOW)) - {"report-failure"} <= pilnowane
+    # szkic posta BMC to nie wydanie: jego błąd nie zakłada zgłoszenia (test niżej)
+    assert set(joby(WORKFLOW)) - {"report-failure", "post-bmc"} <= pilnowane
+    assert "post-bmc" not in pilnowane
     assert "issues: write" in raport
     assert "gh label create release-failed" in raport
     assert "--label release-failed" in raport
     assert 'TITLE="Release v$VERSION failed"' in raport
+
+
+def test_szkic_posta_bmc_po_wydaniu():
+    """Po każdym wydaniu powstaje szkic posta Buy Me a Coffee w kalendarzu Notion
+    (Mysttic/tunnelbox#16). Workflow post-bmc.yml woła job post-bmc, a nie zdarzenie
+    release: published, bo wydanie tworzy GITHUB_TOKEN, a jego zdarzenia nie uruchamiają innych
+    workflow. Błąd Notion nie może oznaczyć wydania jako nieudanego ani założyć zgłoszenia:
+    krok ma continue-on-error, skrypt kończy się kodem 0, a report-failure na post-bmc nie
+    czeka. Workflow dostaje tylko dwa sekrety Notion."""
+    post = job(WORKFLOW, "post-bmc")
+    assert "uses: ./.github/workflows/post-bmc.yml" in post
+    needs = re.search(r"^    needs: \[([^\]]*)\]$", post, re.M)
+    assert needs and "release" in {n.strip() for n in needs.group(1).split(",")}
+    assert "if: needs.version.outputs.publishing == 'true'" in post
+    assert "version: ${{ needs.version.outputs.version }}" in post
+    sekrety = re.findall(r"^      (\w+): \$\{\{ secrets\.(\w+) \}\}$", post, re.M)
+    assert sekrety == [("NOTION_TOKEN", "NOTION_TOKEN"),
+                       ("NOTION_CALENDAR_DATA_SOURCE_ID", "NOTION_CALENDAR_DATA_SOURCE_ID")]
+
+    kod = bez_komentarzy(POST_BMC)
+    assert re.search(r"^  workflow_call:$", kod, re.M)
+    assert re.search(r"^  workflow_dispatch:$", kod, re.M)
+    assert re.search(r"^permissions:\n  contents: read$", kod, re.M)
+    assert "continue-on-error: true" in kod
+    assert "./.github/scripts/post-bmc.ps1 -Version" in kod
+    skrypt = tekst(".github/scripts/post-bmc.ps1")
+    assert re.search(r"^exit 0$", skrypt, re.M), "błąd Notion ma kończyć skrypt ostrzeżeniem"
+    assert (ROOT / ".github" / "scripts" / "post-bmc-test.ps1").is_file()
 
 
 def test_ci_dziala_przy_kazdym_pr():

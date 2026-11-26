@@ -80,8 +80,9 @@ docker compose up -d
 ### 2. Paczka ZIP offline
 
 Pobierz `tunnelbox-X.Y.Z.zip` ze
-[strony projektu](https://mysttic.github.io/Mysttic/tunnelbox/) i rozpakuj w dowolnym
-folderze. Paczka zawiera gotowy obraz (`tunnelbox-image-X.Y.Z.tar.gz`): skrypt
+[strony projektu](https://mysttic.github.io/Mysttic/tunnelbox/) (paczka jest dołączona do
+każdego [wydania](https://github.com/Mysttic/tunnelbox/releases/latest) tego repozytorium)
+i rozpakuj w dowolnym folderze. Paczka zawiera gotowy obraz (`tunnelbox-image-X.Y.Z.tar.gz`): skrypt
 startowy wczytuje go lokalnie (`docker load`), więc nic nie budujesz ani nie pobierasz
 z rejestru.
 
@@ -195,13 +196,14 @@ na `127.0.0.0/8`: panel i przekierowane porty są dostępne wyłącznie z tego k
   nadpisywałyby się między maszynami. Jeśli chcesz zmienić pulę, popraw oba pliki
   compose (`docker-compose.yml`, `packaging/docker-compose.yml`) **i** `app/connections.py`.
 - **Aktualizacje**: panel raz na dobę pyta
-  [stronę projektu](https://mysttic.github.io/Mysttic/tunnelbox/) o nowszą wersję (jej
-  wydania leżą w repozytorium `Mysttic/Mysttic`, obok plików do pobrania innych programów)
+  [wydania](https://github.com/Mysttic/tunnelbox/releases) tego repozytorium o nowszą wersję
   i pokazuje pasek nad listą połączeń: przy paczce ZIP na Windows przycisk „⬆️ Zaktualizuj"
   pobiera i instaluje ją bez wychodzenia z przeglądarki, przy instalacji z rejestru pasek
   pokazuje polecenie `docker compose pull`. Sprawdzanie nie wysyła żadnych Twoich danych
-  i można je wyłączyć w ⚙ Ustawieniach. Szczegóły i kontrakt (tag `tunnelbox-vX.Y.Z`, plik
-  `tunnelbox-X.Y.Z.zip`) w [`app/updates.py`](app/updates.py).
+  i można je wyłączyć w ⚙ Ustawieniach. Szczegóły i kontrakt (tag `vX.Y.Z`, plik
+  `tunnelbox-X.Y.Z.zip`) w [`app/updates.py`](app/updates.py). Do 3.0.0 panel pytał
+  repozytorium strony projektu, `Mysttic/Mysttic`; tam też trafia kopia 3.1.0, więc takie
+  panele aktualizują się do niej i przechodzą na nowy kanał.
 - **Zmiany w kodzie** — po każdej zmianie wystarczy ponownie uruchomić `./start.sh` /
   `start.bat`; przebudowuje obraz poleceniem
   `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.

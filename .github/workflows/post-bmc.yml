@@ -1,0 +1,78 @@
+name: Post BMC
+
+# Szkic posta Buy Me a Coffee o wydaniu jako wpis w kalendarzu Notion „🎸 Zadania”
+# (Mysttic/tunnelbox#16). Buy Me a Coffee nie ma API do postów, więc post publikuje autor,
+# przenosząc tekst z wpisu. Biegnie na dwa sposoby:
+# - z workflow „Release” (job post-bmc) po publikacji każdego wydania;
+# - ręcznie: Run workflow na main z numerem wersji robi wpis dla istniejącego wydania
+#   (np. po błędzie Notion), a „Tylko podgląd” wypisuje wpis i Termin w logu i podsumowaniu,
+#   bez zapisu.
+#
+# Treść wpisu i regułę Terminu opisuje .github/scripts/post-bmc.ps1 (i docs/RELEASING.md,
+# „The Buy Me a Coffee post”). Jeden wpis na wydanie: drugi bieg znajduje go po Link albo
+# tytule. Wydania wstępne i szkice nie dostają wpisu. Błąd Notion nie oznacza wydania jako
+# nieudanego: skrypt kończy się ostrzeżeniem i zdaniem w podsumowaniu, a continue-on-error
+# w kroku łapie resztę (job, który woła ten workflow w „Release”, nie może mieć
+# continue-on-error). Wzór: ten sam workflow w MystticRock i Chatt.
+#
+# Linux, bo skrypt potrzebuje tylko pwsh i gh. Sekrety: NOTION_TOKEN (integracja Notion
+# z uprawnieniami Read content i Insert content, podłączona tylko do bazy „🎸 Zadania”)
+# i NOTION_CALENDAR_DATA_SOURCE_ID (identyfikator źródła danych tej bazy); bez nich bieg
+# kończy się ostrzeżeniem.
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Numer wersji X.Y.Z; wydanie vX.Y.Z już jest na GitHubie
+        required: true
+        type: string
+    secrets:
+      NOTION_TOKEN:
+        required: false
+      NOTION_CALENDAR_DATA_SOURCE_ID:
+        required: false
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Numer wersji X.Y.Z (istniejące wydanie vX.Y.Z)
+        required: true
+        type: string
+      preview:
+        description: Tylko podgląd, bez zapisu w Notion
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  post:
+    name: Szkic w kalendarzu Notion
+    runs-on: ubuntu-latest
+    # Jedno zapytanie do GitHuba i trzy do Notion. Limit to bezpiecznik przeciw domyślnym
+    # 6 godzinom.
+    timeout-minutes: 5
+    # Jeden bieg naraz: dwa równoległe dla tej samej wersji mogłyby oba nie znaleźć wpisu
+    # i zrobić dwa.
+    concurrency:
+      group: post-bmc
+      cancel-in-progress: false
+    steps:
+      - name: Pobierz kod
+        uses: actions/checkout@v4
+
+      - name: Wpis w kalendarzu Notion
+        continue-on-error: true
+        timeout-minutes: 4
+        shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
+          PREVIEW: ${{ inputs.preview == true }}
+          GH_TOKEN: ${{ github.token }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_CALENDAR_DATA_SOURCE_ID: ${{ secrets.NOTION_CALENDAR_DATA_SOURCE_ID }}
+        run: |
+          $preview = @{}
+          if ($env:PREVIEW -eq 'true') { $preview.DryRun = $true }
+          ./.github/scripts/post-bmc.ps1 -Version $env:VERSION @preview

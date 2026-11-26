@@ -24,10 +24,11 @@ $ProgressPreference = 'SilentlyContinue'
 #   $env:TUNNELBOX_UPDATE_TEST = '1'
 $Quiet = $env:TUNNELBOX_UPDATE_TEST -eq '1'
 
-# Strona wydań to hub Mysttic/Mysttic: trzyma wydania kilku programów, ten ma prefiks tagu.
-$HubApi = 'https://api.github.com/repos/Mysttic/Mysttic/releases?per_page=100'
-$TagPrefix = 'tunnelbox-v'
-$DownloadPrefix = 'https://github.com/Mysttic/Mysttic/releases/download/'
+# Strona wydań to wydania tego repozytorium (Mysttic/tunnelbox), tag vX.Y.Z. Do 3.0.0
+# helper czytał hub Mysttic/Mysttic, gdzie wydanie 3.1.0 zostaje jako most (docs/RELEASING.md).
+$ReleasesApi = 'https://api.github.com/repos/Mysttic/tunnelbox/releases?per_page=100'
+$TagPrefix = 'v'
+$DownloadPrefix = 'https://github.com/Mysttic/tunnelbox/releases/download/'
 $PageUrl = 'https://mysttic.github.io/Mysttic/tunnelbox/'
 $PanelApi = 'http://127.0.0.1:25263/api/vault'
 
@@ -77,7 +78,7 @@ try {
 
 Write-Host "Looking for the package on the releases page..."
 try {
-    $releases = Invoke-RestMethod -Uri $HubApi -TimeoutSec 20 -UseBasicParsing -Headers @{
+    $releases = Invoke-RestMethod -Uri $ReleasesApi -TimeoutSec 20 -UseBasicParsing -Headers @{
         'Accept' = 'application/vnd.github+json'
         'User-Agent' = 'Tunnelbox-Panel'
     }
