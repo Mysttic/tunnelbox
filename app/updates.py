@@ -1,20 +1,22 @@
 """Sprawdzanie, czy jest nowsza wersja panelu.
 
-Wydania dla wszystkich publikuje repozytorium-hub Mysttic/Mysttic, czyli strona
-z pobieraniem (https://mysttic.github.io/Mysttic/), i tylko tam pytają zainstalowane panele.
-Hub trzyma wydania kilku programów naraz i rozróżnia je prefiks tagu. Paczkę każdego wydania
-kopiuje tam job „site" w .github/workflows/release.yml.
+Od 3.1.0 panel pyta o wydania własnego, publicznego repozytorium Mysttic/tunnelbox. Job
+„release" w .github/workflows/release.yml tworzy tam każde wydanie razem z paczką.
 
-Kontrakt: tag z prefiksem projektu i nazwa pliku niosąca wersję.
+Kontrakt: tag vX.Y.Z i nazwa pliku niosąca wersję.
 
-    tag:  tunnelbox-v3.0.0
-    plik: tunnelbox-3.0.0.zip
+    tag:  v3.1.0
+    plik: tunnelbox-3.1.0.zip
 
-Bierzemy listę wydań i filtrujemy po prefiksie tagu, zamiast pytać o /releases/latest:
-„latest" huba to najnowsze wydanie dowolnego programu, a szkice i wydania wstępne
-pomijamy tak samo jak strona projektu. Zmiana prefiksu albo nazwy pliku psuje
-aktualizacje wszystkim, którzy mają już zainstalowaną aplikację, a dowiedzą się o tym
-dopiero wtedy, gdy przestanie działać. Pilnuje tego test tests/test_packaging.py.
+Panele 3.0.0 pytają jeszcze hub Mysttic/Mysttic (tag tunnelbox-vX.Y.Z). Dla nich job „site"
+kopiuje tam wydanie 3.1.0, które zostaje na hubie na stałe: przez nie przechodzą na ten
+kanał (docs/RELEASING.md).
+
+Bierzemy listę wydań i z tagów vX.Y.Z wybieramy najwyższy numer, a nie pierwsze wydanie
+z listy: repozytorium trzyma całą historię wydań, a lista nie idzie w kolejności publikacji.
+Szkice i wydania wstępne pomijamy tak samo jak strona projektu. Zmiana tagu albo nazwy
+pliku psuje aktualizacje wszystkim, którzy mają już zainstalowaną aplikację, a dowiedzą się
+o tym dopiero wtedy, gdy przestanie działać. Pilnuje tego test tests/test_packaging.py.
 
 Każdy błąd (brak sieci, timeout, inny kształt odpowiedzi, limit zapytań) kończy się
 wpisem w logu, a panel działa dalej.
@@ -29,13 +31,13 @@ import urllib.request
 
 log = logging.getLogger("tunnelbox.updates")
 
-# hub z wydaniami wszystkich programów; 100 na stronę, tak jak czyta je strona z pobieraniem,
-# żeby wydanie tego programu nie wypadło poza pierwszą stronę, gdy na hubie przybędzie innych
-HUB_REPO = "Mysttic/Mysttic"
-TAG_PREFIX = "tunnelbox-v"
+# wydania tego repozytorium; 100 na stronę, najwięcej, ile API daje naraz, żeby najnowsze
+# wydanie nie wypadło poza pierwszą stronę, gdy historia wydań urośnie
+RELEASES_REPO = "Mysttic/tunnelbox"
+TAG_PREFIX = "v"
 ASSET_RE = re.compile(r"^tunnelbox-\d+\.\d+\.\d+\.zip$")
 PAGE_URL = "https://mysttic.github.io/Mysttic/tunnelbox/"
-API_URL = f"https://api.github.com/repos/{HUB_REPO}/releases?per_page=100"
+API_URL = f"https://api.github.com/repos/{RELEASES_REPO}/releases?per_page=100"
 
 TIMEOUT = 6          # sekundy na odpowiedź API
 OK_TTL = 24 * 3600   # udane sprawdzenie: raz na dobę (limit bez logowania to 60/h na IP)
@@ -69,10 +71,12 @@ def _fetch(url: str = API_URL):
 
 
 def pick_release(releases):
-    """Najnowsze wydanie panelu z listy wydań (pierwsze pasujące).
+    """Najnowsze wydanie panelu z listy wydań: najwyższy numer wersji, nie pierwsze pasujące.
 
-    Szkice i wydania wstępne pomijamy, tak samo jak strona projektu.
+    Lista nie idzie w kolejności publikacji (ponownie uruchomione wydanie starszej wersji
+    może stać przed nowszą). Szkice i wydania wstępne pomijamy, tak samo jak strona projektu.
     """
+    best, best_version = None, None
     for release in releases or []:
         if not isinstance(release, dict):
             continue
@@ -81,10 +85,12 @@ def pick_release(releases):
         tag = release.get("tag_name") or ""
         if not tag.startswith(TAG_PREFIX):
             continue
-        if parse_version(tag[len(TAG_PREFIX):]) is None:
+        version = parse_version(tag[len(TAG_PREFIX):])
+        if version is None:
             continue
-        return release
-    return None
+        if best_version is None or version > best_version:
+            best, best_version = release, version
+    return best
 
 
 def pick_asset(release):
