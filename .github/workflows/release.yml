@@ -321,7 +321,7 @@ jobs:
   # bajt w bajt ten sam i nic nie buduje się drugi raz. Wymaga sekretów DOCKERHUB_USERNAME
   # i DOCKERHUB_TOKEN (token z zakresem Read, Write, Delete, bo węższego Docker Hub nie
   # przyjmuje przy podmianie opisu repozytorium); nazwę repozytorium zmienia zmienna
-  # DOCKERHUB_REPOSITORY (domyślnie mysttic/tunnelbox). Bez sekretów job kończy się
+  # DOCKERHUB_REPOSITORY (domyślnie programistticsolutions/tunnelbox). Bez sekretów job kończy się
   # ostrzeżeniem. Osobny job, bo awaria Docker Hub nie może wstrzymać wydania.
   dockerhub:
     name: Kopia obrazu na Docker Hub
@@ -335,7 +335,7 @@ jobs:
     env:
       VERSION: ${{ needs.version.outputs.version }}
       GHCR_IMAGE: ghcr.io/mysttic/tunnelbox
-      DOCKERHUB_REPOSITORY: ${{ vars.DOCKERHUB_REPOSITORY || 'mysttic/tunnelbox' }}
+      DOCKERHUB_REPOSITORY: ${{ vars.DOCKERHUB_REPOSITORY || 'programistticsolutions/tunnelbox' }}
       # sekrety jako env, bo warunek kroku (if:) nie może czytać secrets bezpośrednio
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

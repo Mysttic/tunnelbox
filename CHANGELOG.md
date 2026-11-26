@@ -7,6 +7,14 @@ Every notable change to **Tunnelbox** (formerly FortiVPN 2). The format follows
 When releasing a new version, **add a section here** for the number in the `VERSION`
 file — the release workflow pulls it into the GitHub release notes automatically.
 
+## [Unreleased]
+
+### Changed
+- **The Docker Hub image has a new home.** Releases go to
+  [`programistticsolutions/tunnelbox`](https://hub.docker.com/r/programistticsolutions/tunnelbox),
+  the project's account; `mysttic/tunnelbox` gets no newer versions. The registry install
+  (`docker-compose.yml`) pulls from GHCR and is not affected.
+
 ## [3.1.0] - 2026-11-26
 
 Updates now come straight from Tunnelbox's own releases on GitHub. Panels of 3.0.0 still

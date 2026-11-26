@@ -29,7 +29,7 @@ New-Item -ItemType Directory -Path $work | Out-Null
 $token = 'atrapa-tokenu-notion'
 $dataSource = '0123456789abcdef0123456789abcdef'
 $dataSourceDashed = '01234567-89ab-cdef-0123-456789abcdef'
-$dockerHubUrl = 'https://hub.docker.com/r/mysttic/tunnelbox'
+$dockerHubUrl = 'https://hub.docker.com/r/programistticsolutions/tunnelbox'
 $pageUrl = 'https://mysttic.github.io/Mysttic/tunnelbox/'
 $disclaimer = 'Tunnelbox is an independent project, not affiliated with or endorsed by Fortinet.'
 $failures = New-Object System.Collections.Generic.List[string]
@@ -220,7 +220,7 @@ function Test-Download($Blocks) {
     $get = @($Blocks | Where-Object { (Get-BlockText $_) -eq 'Get Tunnelbox:' })
     Test-That 'Get Tunnelbox pogrubione' ($get.Count -eq 1 -and $get[0].type -eq 'paragraph' -and $get[0].paragraph.rich_text[0].annotations.bold)
     $hub = @($Blocks | Where-Object { (Get-BlockText $_) -like 'The image on Docker Hub:*' })
-    Test-That 'Docker Hub: odnośnik' ($hub.Count -eq 1 -and (@(Get-LinkUrl $hub[0]) -join ' ') -eq $dockerHubUrl -and (Get-BlockText $hub[0]) -eq 'The image on Docker Hub: hub.docker.com/r/mysttic/tunnelbox')
+    Test-That 'Docker Hub: odnośnik' ($hub.Count -eq 1 -and (@(Get-LinkUrl $hub[0]) -join ' ') -eq $dockerHubUrl -and (Get-BlockText $hub[0]) -eq 'The image on Docker Hub: hub.docker.com/r/programistticsolutions/tunnelbox')
     $package = @($Blocks | Where-Object { (Get-BlockText $_) -like 'The package for Windows*' })
     Test-That 'paczka: odnośnik do strony projektu' ($package.Count -eq 1 -and (@(Get-LinkUrl $package[0]) -join ' ') -eq $pageUrl -and (Get-BlockText $package[0]) -eq 'The package for Windows, macOS and Linux, with the install steps: mysttic.github.io/Mysttic/tunnelbox/')
     $lines = @(Get-PostLines $Blocks)
@@ -262,7 +262,7 @@ try {
     }
     Test-That 'podsumowanie: tytuł i opis wpisu' ($run.Summary.Contains('Post BMC: Tunnelbox 3.0.0') -and $run.Summary.Contains('Rodzaj: Major. Widoczność: Public. Kategoria: Tunnelbox.'))
     Test-That 'podsumowanie: tytuł posta' ($run.Summary.Contains('### Tunnelbox 3.0.0: FortiVPN 2 is now Tunnelbox'))
-    Test-That 'podsumowanie: Docker Hub' ($run.Summary.Contains('- The image on Docker Hub: hub.docker.com/r/mysttic/tunnelbox'))
+    Test-That 'podsumowanie: Docker Hub' ($run.Summary.Contains('- The image on Docker Hub: hub.docker.com/r/programistticsolutions/tunnelbox'))
     Test-Run $run $before
 
     $before = $failures.Count

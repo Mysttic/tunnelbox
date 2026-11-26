@@ -93,7 +93,7 @@ and the advisory is published with it, crediting you unless you prefer otherwise
   host (the Docker Desktop virtual machine on Windows and macOS, the computer itself on
   Linux). Install it only from the
   [project page](https://mysttic.github.io/Mysttic/tunnelbox/) or from the images this
-  repository's workflow publishes (`ghcr.io/mysttic/tunnelbox`, `mysttic/tunnelbox` on
+  repository's workflow publishes (`ghcr.io/mysttic/tunnelbox`, `programistticsolutions/tunnelbox` on
   Docker Hub).
 - **Locking the panel protects the configuration, not active tunnels.** VPN connections
   keep running while the panel is locked, and so do their forwarded ports. Disconnect
