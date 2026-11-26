@@ -202,8 +202,8 @@ na `127.0.0.0/8`: panel i przekierowane porty są dostępne wyłącznie z tego k
   pokazuje polecenie `docker compose pull`. Sprawdzanie nie wysyła żadnych Twoich danych
   i można je wyłączyć w ⚙ Ustawieniach. Szczegóły i kontrakt (tag `vX.Y.Z`, plik
   `tunnelbox-X.Y.Z.zip`) w [`app/updates.py`](app/updates.py). Do 3.0.0 panel pytał
-  repozytorium strony projektu, `Mysttic/Mysttic`; tam też trafia kopia 3.1.0, więc takie
-  panele aktualizują się do niej i przechodzą na nowy kanał.
+  repozytorium strony projektu, `Mysttic/Mysttic`; na stałe zostaje tam kopia 3.1.0, więc
+  takie panele aktualizują się do niej i przechodzą na nowy kanał.
 - **Zmiany w kodzie** — po każdej zmianie wystarczy ponownie uruchomić `./start.sh` /
   `start.bat`; przebudowuje obraz poleceniem
   `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.

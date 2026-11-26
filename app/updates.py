@@ -8,9 +8,8 @@ Kontrakt: tag vX.Y.Z i nazwa pliku niosąca wersję.
     tag:  v3.1.0
     plik: tunnelbox-3.1.0.zip
 
-Panele 3.0.0 pytają jeszcze hub Mysttic/Mysttic (tag tunnelbox-vX.Y.Z). Dla nich job „site"
-kopiuje tam wydanie 3.1.0, które zostaje na hubie na stałe: przez nie przechodzą na ten
-kanał (docs/RELEASING.md).
+Panele 3.0.0 pytają jeszcze hub Mysttic/Mysttic (tag tunnelbox-vX.Y.Z). Na stałe stoi tam
+kopia wydania 3.1.0: przez nią przechodzą na ten kanał (docs/RELEASING.md).
 
 Bierzemy listę wydań i z tagów vX.Y.Z wybieramy najwyższy numer, a nie pierwsze wydanie
 z listy: repozytorium trzyma całą historię wydań, a lista nie idzie w kolejności publikacji.
