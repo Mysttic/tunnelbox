@@ -58,7 +58,7 @@ jobs:
         working-directory: tests/e2e
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: 'npm'
@@ -98,7 +98,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
       # wersje przypięte na sztywno, bez package.json w katalogu głównym
