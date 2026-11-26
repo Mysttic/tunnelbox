@@ -17,6 +17,13 @@ file — the release workflow pulls it into the GitHub release notes automatical
   The package and the registry install (`docker-compose.yml` pulls from GHCR) are not
   affected.
 
+### Removed
+- **Releases are no longer copied to the project page's repository.** Up to 3.1.0 the
+  release workflow also copied each package to `Mysttic/Mysttic`, where 3.0.0 panels look
+  for updates. The copy of 3.1.0 stays there for good, so a 3.0.0 panel still updates to it
+  and, from there, to newer versions. Job `site` is gone, and the workflow no longer needs
+  the `HUB_TOKEN` secret.
+
 ## [3.1.0] - 2026-11-26
 
 Updates now come straight from Tunnelbox's own releases on GitHub. Panels of 3.0.0 still

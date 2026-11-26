@@ -22,14 +22,10 @@ jobs, in this order:
    (`programistticsolutions/tunnelbox`) without rebuilding and syncs the description from
    [`README.md`](../README.md). Nothing waits for it, so a Docker Hub problem never holds
    the release back.
-5. **`site`**: the bridge for 3.0.0 panels, which look only at the hub repository
-   [`Mysttic/Mysttic`](https://github.com/Mysttic/Mysttic): copies the ZIP there as the
-   release `tunnelbox-vX.Y.Z`. It runs for 3.1.0 and is removed after it, see
-   [The update channel and the bridge on the hub](#the-update-channel-and-the-bridge-on-the-hub-job-site).
-6. **`post-bmc`**: adds the draft of the Buy Me a Coffee post to the Notion calendar, see
+5. **`post-bmc`**: adds the draft of the Buy Me a Coffee post to the Notion calendar, see
    [The Buy Me a Coffee post](#the-buy-me-a-coffee-post-job-post-bmc). A Notion problem
    ends in a warning and never holds the release back.
-7. **`report-failure`**: when any of the jobs above but `post-bmc` fails or runs out of
+6. **`report-failure`**: when any of the jobs above but `post-bmc` fails or runs out of
    time, opens an issue labelled `release-failed` (or comments on the open one).
 
 The workflow grants no permissions at the top level (`permissions: {}`); each job asks only
@@ -74,10 +70,7 @@ After releasing, it is worth checking that:
   `docker buildx imagetools inspect ghcr.io/mysttic/tunnelbox:X.Y.Z` (and the same on
   Docker Hub, if configured);
 - the Notion calendar "🎸 Zadania" has the entry `Post BMC: Tunnelbox X.Y.Z` (or the
-  summary of the `post-bmc` job says why not);
-- while job `site` exists (3.1.0): the release `tunnelbox-vX.Y.Z` with
-  `tunnelbox-X.Y.Z.zip` stands on `Mysttic/Mysttic`, and no older `tunnelbox-v*` release is
-  left there.
+  summary of the `post-bmc` job says why not).
 
 ### When a job fails
 
@@ -91,17 +84,17 @@ Fix the cause (an expired token, a registry hiccup) and click **Re-run failed jo
 failed run — the job gets the same inputs it had the first time, and the jobs that were
 waiting for it (e.g. `release` after a failed `images`) run with it. Every publishing job
 checks, at the moment it runs, whether its version is still the newest one: only then do
-`latest` and `X.Y` move, does the GitHub release become *Latest*, does the copy on the
-hub get replaced and does the Docker Hub description change. Re-running an older release's
-failed run therefore never sends anyone back to that version.
+`latest` and `X.Y` move, does the GitHub release become *Latest* and does the Docker Hub
+description change. Re-running an older release's failed run therefore never sends anyone
+back to that version.
 
 The tag `vX.Y.Z` is created only when `release` succeeds:
 
-- **`dockerhub` or `site` failed** — the tag exists, so a plain *Run workflow* or a push to
-  `main` skips everything. Use **Re-run failed jobs**; *Run workflow* with the **force**
-  input ticked skips the tag check and publishes anyway — use it only when re-running the
+- **`dockerhub` failed**: the tag exists, so a plain *Run workflow* or a push to `main`
+  skips everything. Use **Re-run failed jobs**; *Run workflow* with the **force** input
+  ticked skips the tag check and publishes anyway, so use it only when re-running the
   failed job is no longer possible.
-- **`images` or `release` failed** — there is no tag yet, so the next push to `main` (even
+- **`images` or `release` failed**: there is no tag yet, so the next push to `main` (even
   without a `VERSION` change) or a plain *Run workflow* publishes `vX.Y.Z` from that newer
   commit. That is the way to ship a code fix for the failure: merge it without bumping
   `VERSION`, and do not re-run the old failed run afterwards. Until the release is out,
@@ -157,14 +150,15 @@ The full description on Docker Hub is `README.md` (relative links are turned int
 ones); the short description is set in the workflow and must stay within 100 characters.
 Docker Hub limits the full description to 25,000 bytes.
 
-## The update channel and the bridge on the hub (job `site`)
+## The update channel
 
 Tunnelbox has its own distribution: the registry images (Docker Hub is its store, GHCR
 serves the same image to the root `docker-compose.yml`) and this repository's releases,
 which carry the ZIP package. The hub repository
 [`Mysttic/Mysttic`](https://github.com/Mysttic/Mysttic) (GitHub Pages,
 [mysttic.github.io/Mysttic](https://mysttic.github.io/Mysttic/)) stays the project page, as
-it does for the author's other programs, but from 3.1.0 on it carries no Tunnelbox releases.
+it does for the author's other programs. Its only Tunnelbox release is the copy of 3.1.0
+kept there for 3.0.0 panels (see below), and no workflow here writes to it.
 
 Once a day the panel ([`app/updates.py`](../app/updates.py)) asks
 `https://api.github.com/repos/Mysttic/tunnelbox/releases` whether a newer version exists and
@@ -192,28 +186,23 @@ reads the new scheme and change the scheme after that. The consistency of the th
 
 Tunnelbox 3.0.0 reads the hub: releases tagged `tunnelbox-vX.Y.Z` in `Mysttic/Mysttic`, and
 its update helper downloads only from `https://github.com/Mysttic/Mysttic/releases/download/`.
-3.1.0 is the version that reads the new channel, so it has to reach those panels the old
-way. Job `site`:
+3.1.0 is the version that reads the new channel, so it had to reach those panels the old
+way: its release workflow also copied `tunnelbox-3.1.0.zip`, unchanged, to the hub release
+`tunnelbox-v3.1.0` (job `site`, removed in 3.2.0; the workflow no longer needs the
+`HUB_TOKEN` secret).
 
-1. downloads exactly `tunnelbox-X.Y.Z.zip` from this repository's release `vX.Y.Z`;
-2. creates the hub release `tunnelbox-vX.Y.Z` with that file, unchanged (titled
-   `Tunnelbox X.Y.Z`, with the project page's address in the notes), **before** deleting
-   the older `tunnelbox-v*` releases. The deletion filters on `^tunnelbox-v`, so it never
-   touches releases of the other programs.
-
-A 3.0.0 panel then offers 3.1.0, installs it with its own helper, and the new `start.ps1`
+A 3.0.0 panel offers 3.1.0, installs it with its own helper, and the new `start.ps1`
 replaces the helper in `%LOCALAPPDATA%\Tunnelbox` with the one that reads this repository
-(registry installs pull the image and read this repository the same way).
+(registry installs pull the image and read this repository the same way). From then on it
+updates to every newer version like any other panel.
 
-After 3.1.0 is out and an update from 3.0.0 has been checked on Windows:
-
-- remove job `site` from `release.yml`, together with its tests in
-  `tests/test_packaging.py` (`test_most_dla_paneli_3_0_0_na_hubie`,
-  `test_bez_kopii_na_stronie_wydanie_pada` and the `site` entries of the others) and the
-  `HUB_TOKEN` secret;
-- leave `tunnelbox-v3.1.0` on the hub for good, like `mysttrainings-v1.6.0`: 3.0.0 panels
-  that update later go through it. The prefix `tunnelbox-v` stays reserved, so nothing else
-  is published under it.
+- `tunnelbox-v3.1.0` stays on the hub for good, like `mysttrainings-v1.6.0`: 3.0.0 panels
+  that update later go through it. Do not delete or replace it.
+- The prefix `tunnelbox-v` on the hub stays reserved: a 3.0.0 panel would offer anything
+  else published under it.
+- No workflow here writes to the hub: `test_workflow_nie_publikuje_na_hubie` in
+  [`tests/test_packaging.py`](../tests/test_packaging.py) fails when one refers to
+  `Mysttic/Mysttic` or `HUB_TOKEN` again.
 
 FortiVPN 2 (2.9.x) read the same hub under the prefix `fortivpn2-v`. Tunnelbox does not
 publish anything there, so a FortiVPN 2 panel never offers Tunnelbox: people move by
@@ -228,23 +217,6 @@ The project pages are maintained in the hub repository, not here:
 - **`fortivpn2/index.html`**: only a redirect to `../tunnelbox/`, for old bookmarks and the
   "What's new" link of FortiVPN 2 panels;
 - a row in the hub's `RELEASES.md` (project, page, prefix) and a card on its `index.html`.
-
-### The `HUB_TOKEN` secret (until the bridge is out)
-
-The default `GITHUB_TOKEN` only reaches the repository the workflow runs in, so copying to
-the hub needs a credential of its own:
-
-1. <https://github.com/settings/personal-access-tokens>, a **fine-grained** token.
-2. Owner `Mysttic`, access limited to the `Mysttic/Mysttic` repository.
-3. Permission **Contents: Read and write**.
-4. In this repository: *Settings → Secrets and variables → Actions → New repository
-   secret*, named `HUB_TOKEN`.
-
-A missing `HUB_TOKEN` is a hard error: without the copy no 3.0.0 panel sees the release, so
-the job fails and `report-failure` opens an issue. The token has an expiry date; when it
-runs out, the job ends with a readable error, while the release in this repository and the
-registry images are untouched. The fix: renew the token and **Re-run failed jobs** (see
-[When a job fails](#when-a-job-fails)).
 
 ## The Buy Me a Coffee post (job `post-bmc`)
 

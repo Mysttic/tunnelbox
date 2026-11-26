@@ -196,8 +196,8 @@ verified with a real PPP tunnel, so 3.0.0 keeps `privileged`. It still listens o
   registry install the bar shows the `docker compose pull` command. The check sends none of
   your data and can be turned off in ⚙ Settings. The details and the contract (tag
   `vX.Y.Z`, file `tunnelbox-X.Y.Z.zip`) are in [`app/updates.py`](app/updates.py). Up to
-  3.0.0 the panel asked the repository behind the project page, `Mysttic/Mysttic`; 3.1.0 is
-  copied there too, so those panels update to it and move over.
+  3.0.0 the panel asked the repository behind the project page, `Mysttic/Mysttic`; a copy of
+  3.1.0 stays there for good, so those panels update to it and move over.
 - **Code changes** — after every change just run `./start.sh` / `start.bat` again; it
   rebuilds the image with
   `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
