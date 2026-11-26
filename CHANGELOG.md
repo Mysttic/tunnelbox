@@ -7,7 +7,10 @@ Every notable change to **Tunnelbox** (formerly FortiVPN 2). The format follows
 When releasing a new version, **add a section here** for the number in the `VERSION`
 file — the release workflow pulls it into the GitHub release notes automatically.
 
-## [Unreleased]
+## [3.2.0] - 2026-11-26
+
+A maintenance release: the Docker Hub image moves to the project's own account and the
+dependencies are up to date. The panel itself works as before.
 
 ### Changed
 - **The Docker Hub image has a new home.** Releases go to
@@ -16,6 +19,9 @@ file — the release workflow pulls it into the GitHub release notes automatical
   you pull the image from there, switch to the new name or to `ghcr.io/mysttic/tunnelbox`.
   The package and the registry install (`docker-compose.yml` pulls from GHCR) are not
   affected.
+- **Dependencies are up to date.** The panel requires FastAPI 0.162, uvicorn 0.54 and
+  cryptography 50.0.2 or newer; the tests and the release workflow moved to current versions
+  of their tools as well.
 
 ### Removed
 - **Releases are no longer copied to the project page's repository.** Up to 3.1.0 the
