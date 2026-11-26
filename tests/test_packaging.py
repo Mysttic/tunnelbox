@@ -71,7 +71,7 @@ POST_BMC = tekst(".github/workflows/post-bmc.yml")
 LAUNCHER = tekst("packaging/update-launcher.ps1")
 
 # Kanał aktualizacji od 3.1.0: wydania tego repozytorium, tag v<wersja>. Hub Mysttic/Mysttic
-# (prefiks tunnelbox-v) czytają już tylko panele 3.0.0: job site kopiuje tam wydanie jako most.
+# (prefiks tunnelbox-v) czytają już tylko panele 3.0.0, a stoi tam na stałe kopia 3.1.0.
 REPO = "Mysttic/tunnelbox"
 HUB = "Mysttic/Mysttic"
 PAGE = "https://mysttic.github.io/Mysttic/tunnelbox/"
@@ -217,36 +217,20 @@ def test_kontrakt_wydania_jest_ten_sam_w_trzech_miejscach():
     assert f"$PageUrl = '{PAGE}'" in LAUNCHER
 
 
-def test_most_dla_paneli_3_0_0_na_hubie():
-    """Panele 3.0.0 pytają wyłącznie hub Mysttic/Mysttic: tag tunnelbox-v<wersja>, plik
-    tunnelbox-<wersja>.zip, pobranie tylko spod github.com/Mysttic/Mysttic/releases/download/.
-    Job site kopiuje tam paczkę z wydania tego repozytorium bez zmian, inaczej żaden z nich
-    nie dowie się o 3.1.0, która przenosi panel na wydania tego repozytorium. Po wydaniu
-    3.1.0 job site znika, a jej kopia zostaje na hubie (docs/RELEASING.md)."""
-    site = job(WORKFLOW, "site")
-    assert f"HUB: {HUB}" in site
-    assert "PROJECT: tunnelbox" in site
-    assert "HUB_TAG: tunnelbox-v${{ needs.version.outputs.version }}" in site
-    assert "TAG: ${{ needs.version.outputs.tag }}" in site
-    assert 'gh release download "$TAG" --repo "$GITHUB_REPOSITORY"' in site
-    assert '--pattern "tunnelbox-$VERSION.zip"' in site
-    assert 'gh release create "$HUB_TAG" "copy/$PROJECT-$VERSION.zip"' in site
-    assert '--repo "$HUB"' in site
-    assert f"SITE: {PAGE}" in site
-
-
-def test_bez_kopii_na_stronie_wydanie_pada():
-    """Bez kopii na hubie panele 3.0.0 nie dowiedzą się o wydaniu, które przenosi je na
-    nowy kanał. Brak HUB_TOKEN ma więc wywrócić job (i założyć zgłoszenie), a nie przejść
-    po cichu."""
-    site = job(WORKFLOW, "site")
-    assert re.search(r'if \[ -z "\$\{HUB_TOKEN:-\}" \]; then\n(?:[^\n]*\n){0,3}?\s*exit 1\n', site)
-
-
-def test_workflow_kasuje_tylko_wydania_tego_projektu():
-    """Strona trzyma wydania kilku programów pod jednym repozytorium."""
-    assert "PROJECT: tunnelbox" in WORKFLOW
-    assert 'grep -E "^$PROJECT-v"' in WORKFLOW
+@pytest.mark.parametrize("plik", sorted((ROOT / ".github" / "workflows").glob("*.yml")),
+                         ids=lambda p: p.name)
+def test_workflow_nie_publikuje_na_hubie(plik):
+    """Od 3.2.0 wydania nie trafiają na hub Mysttic/Mysttic. Stoi tam na stałe
+    tunnelbox-v3.1.0: panele 3.0.0, które pytają tylko hub, aktualizują się przez nie do 3.1.0,
+    a ta czyta już wydania tego repozytorium. Workflow nie ma więc po co sięgać do huba ani
+    trzymać sekretu HUB_TOKEN z prawem zapisu w innym repozytorium, a sprzątanie starszych
+    kopii, jak w dawnym jobie site, zabrałoby panelom 3.0.0 jedyną drogę na nowy kanał
+    (docs/RELEASING.md)."""
+    kod = bez_komentarzy(plik.read_text(encoding="utf-8"))
+    # DOCKERHUB_TOKEN to inny sekret: \b nie pozwala mu pasować
+    assert not re.search(r"\bHUB_TOKEN\b", kod, re.I)
+    # GitHub nie rozróżnia wielkości liter w nazwie repozytorium
+    assert HUB.lower() not in kod.lower()
 
 
 def test_obraz_zawiera_plik_wersji():
@@ -551,32 +535,29 @@ def test_docker_hub_tylko_z_sekretami():
         assert "if: steps.enabled.outputs.on == 'true'" in krok, krok
     assert any("peter-evans/dockerhub-description" in krok for krok in kroki(hub))
 
-    # wydanie i kopia na stronie nie czekają na Docker Hub
-    for nazwa in ("release", "site"):
-        needs = re.search(r"^    needs: (.*)$", job(WORKFLOW, nazwa), re.M).group(1)
-        assert "dockerhub" not in needs, nazwa
+    # wydanie nie czeka na Docker Hub
+    needs = re.search(r"^    needs: (.*)$", job(WORKFLOW, "release"), re.M).group(1)
+    assert "dockerhub" not in needs
 
 
 def test_wydanie_powstaje_po_obrazie_w_rejestrze():
-    """Wydanie w tym repozytorium (a dla paneli 3.0.0 jego kopia na hubie) jest kanałem
-    aktualizacji: panel z rejestru, gdy je zobaczy, każe zrobić docker compose pull. Wydanie
-    opublikowane przed obrazem w GHCR (budowa na trzy architektury trwa do godziny) kazałoby
-    ściągnąć wersję, której jeszcze nie ma. Dlatego release czeka na images, a site na release."""
-    for nazwa, poprzedni in [("release", "images"), ("site", "release")]:
-        needs = re.search(r"^    needs: \[([^\]]*)\]$", job(WORKFLOW, nazwa), re.M)
-        assert needs and poprzedni in {n.strip() for n in needs.group(1).split(",")}, nazwa
+    """Wydanie w tym repozytorium jest kanałem aktualizacji: panel z rejestru, gdy je
+    zobaczy, każe zrobić docker compose pull. Wydanie opublikowane przed obrazem w GHCR
+    (budowa na trzy architektury trwa do godziny) kazałoby ściągnąć wersję, której jeszcze
+    nie ma. Dlatego release czeka na images."""
+    needs = re.search(r"^    needs: \[([^\]]*)\]$", job(WORKFLOW, "release"), re.M)
+    assert needs and "images" in {n.strip() for n in needs.group(1).split(",")}
     # tag na zbudowanym commicie — release powstaje później, main mógł się w tym czasie ruszyć
     assert "target_commitish: ${{ github.sha }}" in job(WORKFLOW, "release")
 
 
-@pytest.mark.parametrize("nazwa", ["images", "release", "dockerhub", "site"])
+@pytest.mark.parametrize("nazwa", ["images", "release", "dockerhub"])
 def test_latest_tylko_dla_najnowszego_wydania(nazwa):
     """Ponowne uruchomienie nieudanego przebiegu starszego wydania (Re-run failed jobs,
     gdy wyszła już nowsza wersja) nie może niczego cofnąć: ani latest i X.Y w rejestrze,
-    ani „Latest" na GitHubie (na nie wskazują linki /releases/latest), ani kopii na stronie
-    (sprzątanie skasowałoby nowszą), ani opisu na Docker Hub. Decyzja zapada
-    w każdym z tych jobów, w chwili jego uruchomienia — nie z wyjść innego joba, które
-    „Re-run failed jobs" bierze z pierwszego przebiegu."""
+    ani „Latest" na GitHubie (na nie wskazują linki /releases/latest), ani opisu na Docker
+    Hub. Decyzja zapada w każdym z tych jobów w chwili jego uruchomienia, a nie z wyjść
+    innego joba, które „Re-run failed jobs" bierze z pierwszego przebiegu."""
     tekst_joba = job(WORKFLOW, nazwa)
     # błąd sieci przy ls-remote przerywa job, zamiast udawać pustą listę tagów
     assert "REMOTE=\"$(git ls-remote --tags --refs origin 'refs/tags/v*')\"" in tekst_joba
@@ -592,16 +573,13 @@ def test_latest_tylko_dla_najnowszego_wydania(nazwa):
         assert 'if [ "$MINOR" = "true" ]' in tekst_joba
         opis = next(k for k in kroki(tekst_joba) if "peter-evans/dockerhub-description" in k)
         assert "steps.newest.outputs.latest == 'true'" in opis
-    else:
-        for krok in kroki(tekst_joba):
-            if 'gh release create "$HUB_TAG"' in krok or "gh release delete" in krok:
-                assert "if: steps.newest.outputs.latest == 'true'" in krok, krok
 
 
 def test_nieudane_wydanie_zaklada_zgloszenie():
-    """Wydanie, które padło w połowie (ZIP jest, a obrazu w rejestrze albo kopii na stronie
-    nie ma), ma być widać w Issues — czerwony przebieg w Actions łatwo przeoczyć. Każdy
-    job wydania musi być w needs, inaczej jego awaria przejdzie bez zgłoszenia."""
+    """Wydanie, które padło w połowie (obraz jest w GHCR, a ZIP-a albo kopii na Docker Hub
+    nie ma), ma być widać w Issues, bo czerwony przebieg w Actions łatwo przeoczyć. Każdy
+    job wydania musi być w needs, inaczej jego awaria przejdzie bez zgłoszenia, a job
+    w needs, którego nie ma w pliku, unieważnia cały workflow."""
     raport = job(WORKFLOW, "report-failure")
     # job po przekroczeniu timeout-minutes kończy się jako „cancelled", nie „failure"
     assert re.search(r"^    if: failure\(\) \|\| \(!cancelled\(\) && contains\(needs\.\*\.result, 'cancelled'\)\)$",
@@ -610,10 +588,14 @@ def test_nieudane_wydanie_zaklada_zgloszenie():
     needs = re.search(r"^    needs: \[([^\]]*)\]$", raport, re.M)
     assert needs, "brak needs w report-failure"
     pilnowane = {nazwa.strip() for nazwa in needs.group(1).split(",")}
-    assert {"version", "images", "release", "dockerhub", "site"} <= pilnowane
+    assert {"version", "images", "release", "dockerhub"} <= pilnowane
     # szkic posta BMC to nie wydanie: jego błąd nie zakłada zgłoszenia (test niżej)
     assert set(joby(WORKFLOW)) - {"report-failure", "post-bmc"} <= pilnowane
     assert "post-bmc" not in pilnowane
+    assert pilnowane <= set(joby(WORKFLOW)), pilnowane - set(joby(WORKFLOW))
+    # zgłoszenie podaje wynik każdego pilnowanego joba i żadnego innego
+    wyniki = re.findall(r"^      RESULT_\w+: \$\{\{ needs\.([\w-]+)\.result \}\}$", raport, re.M)
+    assert set(wyniki) == pilnowane
     assert "issues: write" in raport
     assert "gh label create release-failed" in raport
     assert "--label release-failed" in raport

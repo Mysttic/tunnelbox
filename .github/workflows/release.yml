@@ -19,9 +19,6 @@ name: Release
 #   dockerhub      : kopia tych samych tagów z GHCR na Docker Hub (bez ponownego budowania)
 #                    i opis repozytorium z README; tylko gdy są sekrety DOCKERHUB_*.
 #                    Awaria Docker Hub (np. wygasły token) nie wstrzymuje wydania.
-#   site           : most dla paneli 3.0.0, które pytają tylko hub Mysttic/Mysttic: kopia
-#                    paczki pod tagiem tunnelbox-vX.Y.Z. Zostaje do wydania 3.1.0, którego
-#                    kopia stoi na hubie na stałe (docs/RELEASING.md).
 #   post-bmc       : szkic posta Buy Me a Coffee w kalendarzu Notion (post-bmc.yml). Błąd
 #                    Notion nie wstrzymuje wydania i nie zakłada zgłoszenia.
 #   report-failure : gdy któryś z jobów wydania (wszystkie poza post-bmc) padnie albo
@@ -34,7 +31,7 @@ name: Release
 # Tag powstaje dopiero w jobie release: gdy images albo release padły, kolejny push do main
 # wyda tę wersję jeszcze raz, z nowego commitu (patrz docs/RELEASING.md). Ręczne uruchomienie
 # z force=true pomija tego strażnika — służy do dokończenia wydania, przy którym tag
-# już powstał (np. po wygaśnięciu HUB_TOKEN).
+# już powstał (np. po wygaśnięciu tokenu Docker Hub).
 
 on:
   push:
@@ -424,126 +421,6 @@ jobs:
           short-description: "Several Fortinet SSL-VPN / IPsec tunnels at once, in one Docker container, driven from your browser."
           enable-url-completion: true
 
-  # Most dla paneli 3.0.0. Pytają one wyłącznie hub Mysttic/Mysttic (repozytorium strony
-  # projektu): tag tunnelbox-vX.Y.Z, plik tunnelbox-X.Y.Z.zip, a w nim folder tunnelbox-X.Y.Z
-  # ze start.ps1 (ich instalator przyjmuje tylko pliki spod github.com/Mysttic/Mysttic/
-  # releases/download/). Od 3.1.0 panel i instalator pytają wydania tego repozytorium, więc
-  # kopia 3.1.0 na hubie jest ostatnia: po tym wydaniu job znika razem z sekretem HUB_TOKEN,
-  # a kopia zostaje, żeby panele 3.0.0 przez nią przeszły na nowy kanał (docs/RELEASING.md).
-  # Hub trzyma wydania kilku programów, więc job rusza wyłącznie wydania z prefiksem
-  # tunnelbox-v.
-  site:
-    name: Kopia na hubie (most dla paneli 3.0.0)
-    needs: [version, release]
-    if: needs.version.outputs.publishing == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read   # gh release download z tego repozytorium (GITHUB_TOKEN)
-    env:
-      HUB: Mysttic/Mysttic
-      PROJECT: tunnelbox            # prefiks wydań tego programu na stronie
-      NAME: Tunnelbox
-      SITE: https://mysttic.github.io/Mysttic/tunnelbox/
-      VERSION: ${{ needs.version.outputs.version }}
-      TAG: ${{ needs.version.outputs.tag }}
-      HUB_TAG: tunnelbox-v${{ needs.version.outputs.version }}
-    steps:
-      - name: Pobierz kod
-        uses: actions/checkout@v4
-
-      # Kopia starszej wersji (ponowne uruchomienie nieudanego przebiegu, gdy wyszła już
-      # nowsza) nie może zastąpić na stronie nowszej: krok sprzątania skasowałby ją,
-      # a panele dostałyby starszą wersję.
-      - name: Czy to najnowsze wydanie
-        id: newest
-        run: |
-          set -euo pipefail
-          # błąd sieci przy ls-remote ma przerwać job — gdyby lista tagów wyszła pusta,
-          # starsza wersja uznałaby się za najnowszą
-          REMOTE="$(git ls-remote --tags --refs origin 'refs/tags/v*')"
-          ALL="$( { printf '%s\n' "$REMOTE" | sed 's#.*refs/tags/v##' \
-                    | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true; }; echo "$VERSION")"
-          TOP="$(printf '%s\n' "$ALL" | sort -V | tail -1)"
-          TOP_MINOR="$(printf '%s\n' "$ALL" | awk -F. -v m="${VERSION%.*}" '$1"."$2 == m' | sort -V | tail -1)"
-          echo "latest=$([ "$TOP" = "$VERSION" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-          echo "minor=$([ "$TOP_MINOR" = "$VERSION" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-          echo "Najnowsza wersja: $TOP, najnowsza w linii ${VERSION%.*}: $TOP_MINOR"
-
-      - name: Poświadczenie do repozytorium strony
-        env:
-          HUB_TOKEN: ${{ secrets.HUB_TOKEN }}
-          LATEST: ${{ steps.newest.outputs.latest }}
-        run: |
-          set -uo pipefail
-          if [ "$LATEST" != "true" ]; then
-            echo "::notice::Jest już nowsze wydanie niż $TAG, kopia na stronie zostaje bez zmian."
-            exit 0
-          fi
-          if [ -z "${HUB_TOKEN:-}" ]; then
-            echo "::error::Brak sekretu HUB_TOKEN. Wydanie $TAG powstało, ale bez kopii na hubie panele 3.0.0 go nie zobaczą."
-            echo "::error::Potrzebny token osobisty z uprawnieniem Contents: read and write do $HUB."
-            exit 1
-          fi
-
-      - name: Paczka z wydania
-        if: steps.newest.outputs.latest == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          mkdir -p copy
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
-            --dir copy --pattern "tunnelbox-$VERSION.zip"
-          ls -la copy
-          if [ ! -f "copy/tunnelbox-$VERSION.zip" ]; then
-            echo "::error::Brak pliku tunnelbox-$VERSION.zip w wydaniu $TAG."
-            exit 1
-          fi
-
-      - name: Opis wydania
-        if: steps.newest.outputs.latest == 'true'
-        run: |
-          set -euo pipefail
-          {
-            echo "$NAME $VERSION"
-            echo
-            echo "$SITE"
-          } > notes.md
-          cat notes.md
-
-      - name: Wydanie na stronie
-        if: steps.newest.outputs.latest == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.HUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          if gh release view "$HUB_TAG" --repo "$HUB" >/dev/null 2>&1; then
-            gh release delete "$HUB_TAG" --repo "$HUB" --cleanup-tag --yes
-          fi
-          gh release create "$HUB_TAG" "copy/$PROJECT-$VERSION.zip" \
-            --repo "$HUB" \
-            --title "$NAME $VERSION" \
-            --notes-file notes.md \
-            --target master
-
-      - name: Na stronie zostaje jedna wersja
-        if: steps.newest.outputs.latest == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.HUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          # nowe wydanie jest już na miejscu, więc strona ani przez chwilę nie jest pusta;
-          # filtr ^$PROJECT-v pilnuje, żeby nie ruszyć wydań innych programów
-          gh release list --repo "$HUB" --limit 100 --json tagName -q '.[].tagName' \
-            | { grep -E "^$PROJECT-v" || true; } \
-            | { grep -vxF "$HUB_TAG" || true; } \
-            | while read -r old; do
-                echo "Usuwam $old"
-                gh release delete "$old" --repo "$HUB" --cleanup-tag --yes
-              done
-          echo "$HUB_TAG stoi na stronie: $SITE" >> "$GITHUB_STEP_SUMMARY"
-
   # Szkic posta Buy Me a Coffee o tym wydaniu jako wpis w kalendarzu Notion „🎸 Zadania”
   # (Mysttic/tunnelbox#16). Osobny workflow, a nie zdarzenie release: published, bo wydanie
   # tworzy GITHUB_TOKEN, a jego zdarzenia nie uruchamiają innych workflow; ten sam workflow
@@ -568,7 +445,7 @@ jobs:
   # przebiegi tej samej wersji dopisują się do otwartego zgłoszenia zamiast mnożyć nowe.
   report-failure:
     name: Zgłoszenie nieudanego wydania
-    needs: [version, images, release, dockerhub, site]
+    needs: [version, images, release, dockerhub]
     # failure() jest prawdziwe, gdy padł którykolwiek job z needs. Job, który przekroczył
     # timeout-minutes, kończy się jako „cancelled" (a cały przebieg nie), więc łapiemy też
     # ten wynik; ręczne anulowanie całego przebiegu (cancelled()) zgłoszenia nie zakłada.
@@ -586,7 +463,6 @@ jobs:
       RESULT_IMAGES: ${{ needs.images.result }}
       RESULT_RELEASE: ${{ needs.release.result }}
       RESULT_DOCKERHUB: ${{ needs.dockerhub.result }}
-      RESULT_SITE: ${{ needs.site.result }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - name: Załóż zgłoszenie albo dopisz przebieg
@@ -601,7 +477,7 @@ jobs:
           # wyniki jobów: success / failure / cancelled / skipped
           FAILED=""
           for pair in "version=$RESULT_VERSION" "images=$RESULT_IMAGES" "release=$RESULT_RELEASE" \
-                      "dockerhub=$RESULT_DOCKERHUB" "site=$RESULT_SITE"; do
+                      "dockerhub=$RESULT_DOCKERHUB"; do
             case "${pair#*=}" in
               failure) FAILED="${FAILED:+$FAILED, }${pair%%=*}" ;;
               cancelled) FAILED="${FAILED:+$FAILED, }${pair%%=*} (cancelled / timed out)" ;;
@@ -617,7 +493,6 @@ jobs:
             echo "| images | $RESULT_IMAGES |"
             echo "| release | $RESULT_RELEASE |"
             echo "| dockerhub | $RESULT_DOCKERHUB |"
-            echo "| site | $RESULT_SITE |"
             echo
             echo "Failed jobs: ${FAILED:-none reported}"
             echo
